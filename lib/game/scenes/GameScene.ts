@@ -264,23 +264,12 @@ export default class GameScene extends Phaser.Scene {
     const plat = this.platforms.create(
       width / 2,
       height - 60,
-      undefined
+      "cloud-platform"
     ) as Phaser.Physics.Arcade.Sprite;
-    plat.setDisplaySize(160, PLATFORM_HEIGHT);
+    plat.setDisplaySize(160, 45);
+    plat.setSize(160, PLATFORM_HEIGHT);
     plat.refreshBody();
-    plat.setVisible(false);
-
-    // Draw visible platform
-    const gfx = this.add.graphics();
-    gfx.fillStyle(0x9b59b6, 1);
-    gfx.fillRoundedRect(
-      width / 2 - 80,
-      height - 66,
-      160,
-      PLATFORM_HEIGHT,
-      6
-    );
-    gfx.setDepth(2);
+    plat.setDepth(2);
   }
 
   private spawnPlatform() {
@@ -295,26 +284,12 @@ export default class GameScene extends Phaser.Scene {
     const plat = this.platforms.create(
       x,
       y,
-      undefined
+      "cloud-platform"
     ) as Phaser.Physics.Arcade.Sprite;
-    plat.setDisplaySize(PLATFORM_WIDTH, PLATFORM_HEIGHT);
+    plat.setDisplaySize(120, 45);
+    plat.setSize(PLATFORM_WIDTH, PLATFORM_HEIGHT);
     plat.refreshBody();
-    plat.setVisible(false);
-
-    // Visible graphic
-    const gfx = this.add.graphics();
-    const color = this.getPlatformColor();
-    gfx.fillStyle(color, 1);
-    gfx.fillRoundedRect(
-      x - PLATFORM_WIDTH / 2,
-      y - PLATFORM_HEIGHT / 2,
-      PLATFORM_WIDTH,
-      PLATFORM_HEIGHT,
-      6
-    );
-    gfx.setDepth(2);
-    // Attach graphic so it's cleaned up conceptually (no built-in grouping needed)
-    (plat as unknown as { gfx: Phaser.GameObjects.Graphics }).gfx = gfx;
+    plat.setDepth(2);
 
     // Occasionally spawn a collectable or boost on the platform
     const roll = Math.random();
@@ -356,22 +331,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private spawnEnemy(x: number, y: number) {
-    // FUD Bear (rectangle placeholder coloured red-brown)
-    const bear = this.enemies.create(x, y - 20, undefined) as Phaser.Physics.Arcade.Sprite;
-    bear.setDisplaySize(30, 30);
+    const bear = this.enemies.create(x, y - 20, "fud-bear") as Phaser.Physics.Arcade.Sprite;
+    bear.setDisplaySize(48, 48);
+    bear.setSize(30, 30);
     bear.setGravityY(-GRAVITY);
     bear.setVelocityX(ENEMY_PATROL_SPEED);
     bear.setDepth(3);
-    bear.setVisible(false);
-
-    // Visual
-    const gfx = this.add.graphics();
-    gfx.fillStyle(0x8b4513, 1);
-    gfx.fillRect(-15, -15, 30, 30);
-    const container = this.add.container(x, y - 20, [gfx]);
-    container.setDepth(3);
-    (bear as unknown as { container: Phaser.GameObjects.Container }).container =
-      container;
   }
 
   private spawnRedCandle() {
@@ -380,22 +345,13 @@ export default class GameScene extends Phaser.Scene {
     const candle = this.redCandles.create(
       x,
       camY - 30,
-      undefined
+      "red-candle"
     ) as Phaser.Physics.Arcade.Sprite;
-    candle.setDisplaySize(16, 40);
+    candle.setDisplaySize(24, 60);
+    candle.setSize(16, 40);
     candle.setGravityY(200);
     candle.setVelocityY(120);
     candle.setDepth(4);
-    candle.setVisible(false);
-
-    const gfx = this.add.graphics();
-    gfx.fillStyle(0xff0000, 1);
-    gfx.fillRect(-8, -20, 16, 40);
-    gfx.fillStyle(0xffa500, 1);
-    gfx.fillRect(-4, -28, 8, 10);
-    const c = this.add.container(x, camY - 30, [gfx]);
-    c.setDepth(4);
-    (candle as unknown as { container: Phaser.GameObjects.Container }).container = c;
   }
 
   private spawnFudCloud() {
@@ -406,20 +362,13 @@ export default class GameScene extends Phaser.Scene {
     const cloud = this.fudClouds.create(
       startX,
       y,
-      undefined
+      "fud-cloud"
     ) as Phaser.Physics.Arcade.Sprite;
-    cloud.setDisplaySize(70, 35);
+    cloud.setDisplaySize(90, 50);
+    cloud.setSize(70, 35);
     cloud.setGravityY(-GRAVITY);
     cloud.setVelocityX(fromLeft ? ENEMY_PATROL_SPEED * 1.2 : -ENEMY_PATROL_SPEED * 1.2);
     cloud.setDepth(3);
-    cloud.setVisible(false);
-
-    const gfx = this.add.graphics();
-    gfx.fillStyle(0x555577, 0.9);
-    gfx.fillEllipse(0, 0, 70, 35);
-    const c = this.add.container(startX, y, [gfx]);
-    c.setDepth(3);
-    (cloud as unknown as { container: Phaser.GameObjects.Container }).container = c;
   }
 
   // ─── Background drawing ───────────────────────────────────────────────────
@@ -433,17 +382,7 @@ export default class GameScene extends Phaser.Scene {
     this.stars = [];
 
     if (stage === 0) {
-      // Dark Room / Web2 — dark purple/blue neon
-      this.bgGraphics.fillGradientStyle(0x0a0020, 0x0a0020, 0x1a0040, 0x1a0040, 1);
-      this.bgGraphics.fillRect(0, 0, w, h);
-      // Neon grid lines
-      this.bgGraphics.lineStyle(1, 0x9b59b6, 0.3);
-      for (let i = 0; i < w; i += 40) {
-        this.bgGraphics.lineBetween(i, 0, i, h);
-      }
-      for (let j = 0; j < h; j += 40) {
-        this.bgGraphics.lineBetween(0, j, w, j);
-      }
+      this.createNightSkyBackground();
     } else if (stage === 1) {
       // Farcaster Atmosphere — indigo/purple gradient
       this.bgGraphics.fillGradientStyle(0x190041, 0x190041, 0x420d8e, 0x420d8e, 1);
@@ -471,6 +410,47 @@ export default class GameScene extends Phaser.Scene {
           .setScrollFactor(0)
           .setDepth(-9);
         this.stars.push(star);
+      }
+    }
+  }
+
+  private createNightSkyBackground() {
+    const w = this.scale.width;
+    const h = this.scale.height;
+
+    // Dark blue gradient sky
+    this.bgGraphics.fillGradientStyle(0x0a0a2e, 0x0a0a2e, 0x1a1a4e, 0x1a1a4e, 1);
+    this.bgGraphics.fillRect(0, 0, w, h);
+
+    // Moon glow
+    this.bgGraphics.fillStyle(0xffee88, 0.25);
+    this.bgGraphics.fillCircle(w - 50, 55, 35);
+    // Moon
+    this.bgGraphics.fillStyle(0xffee88, 1);
+    this.bgGraphics.fillCircle(w - 50, 55, 25);
+
+    // Stars (~80 scattered across sky)
+    for (let i = 0; i < 80; i++) {
+      const sx = Phaser.Math.Between(0, w);
+      const sy = Phaser.Math.Between(0, h);
+      const r = Phaser.Math.Between(1, 2);
+      const color = Math.random() < 0.7 ? 0xffffff : 0xffffaa;
+      const star = this.add
+        .circle(sx, sy, r, color, 0.8)
+        .setScrollFactor(0)
+        .setDepth(-9);
+      this.stars.push(star);
+
+      // ~30% of stars twinkle
+      if (Math.random() < 0.3) {
+        this.tweens.add({
+          targets: star,
+          alpha: { from: 0.3, to: 1.0 },
+          duration: Phaser.Math.Between(800, 2000),
+          yoyo: true,
+          repeat: -1,
+          delay: Phaser.Math.Between(0, 1000),
+        });
       }
     }
   }

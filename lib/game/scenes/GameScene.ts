@@ -41,6 +41,7 @@ export default class GameScene extends Phaser.Scene {
   private lastTapTime = 0;
   private readonly DOUBLE_TAP_THRESHOLD = 300;
   private hookUsed = false;
+  private platformsSpawned = 0;
 
   constructor(onGameOver?: (score: number) => void) {
     super({ key: "GameScene" });
@@ -57,6 +58,7 @@ export default class GameScene extends Phaser.Scene {
     this.bgStage = 0;
     this.hookUsed = false;
     this.lastTapTime = 0;
+    this.platformsSpawned = 0;
   }
 
   create() {
@@ -290,6 +292,7 @@ export default class GameScene extends Phaser.Scene {
     plat.setOffset(160 * 0.125, 4);
     plat.refreshBody();
     plat.setDepth(2);
+    this.platformsSpawned++;
   }
 
   private spawnPlatform() {
@@ -338,7 +341,8 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Spawn enemy on normal platform only
-    if (platformKey === "cloud-normal" && Math.random() < 0.12 && this.score > 100) {
+    this.platformsSpawned++;
+    if (platformKey === "cloud-normal" && Math.random() < 0.18 && this.platformsSpawned > 15) {
       this.spawnEnemy(x, y);
     } else if (platformKey === "cloud-normal" && Math.random() < 0.20) {
       this.spawnCollectable(x, y - 20);
@@ -359,8 +363,10 @@ export default class GameScene extends Phaser.Scene {
   private spawnEnemy(x: number, y: number) {
     const bear = this.enemies.create(x, y - 28, "fud-bear") as Phaser.Physics.Arcade.Sprite;
     bear.setScale(56 / Math.max(bear.width, bear.height));
-    bear.setBodySize(bear.displayWidth * 0.65, bear.displayHeight * 0.75);
-    bear.setOffset(bear.displayWidth * 0.175, bear.displayHeight * 0.125);
+    const bw = bear.displayWidth * 0.65;
+    const bh = bear.displayHeight * 0.75;
+    bear.setBodySize(bw, bh);
+    bear.setOffset((bear.displayWidth - bw) / 2, (bear.displayHeight - bh) / 2);
     bear.setGravityY(-GRAVITY);
     bear.setVelocityX(ENEMY_PATROL_SPEED);
     bear.setDepth(3);

@@ -3,11 +3,11 @@ import * as Phaser from "phaser";
 const GAME_WIDTH = 400;
 const PLATFORM_HEIGHT = 12;
 const PLATFORM_WIDTH = 80;
-const PLAYER_BOUNCE = -800;
-const BOOST_BOUNCE = -1400;
+const PLAYER_BOUNCE = -600;
+const BOOST_BOUNCE = -1100;
 const PLATFORM_SPACING_MIN = 60;
 const PLATFORM_SPACING_MAX = 120;
-const GRAVITY = 1200;
+const GRAVITY = 700;
 const LOVE_SPEED = -700;
 const ENEMY_PATROL_SPEED = 60;
 const COLLECTABLE_SCORE = 50;
@@ -111,7 +111,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Camera
     this.cameras.main.setBounds(0, -99999, width, 100000 + height);
-    this.cameras.main.startFollow(this.player, true, 1, 0.1);
+    this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
     this.cameras.main.setFollowOffset(0, height * 0.3);
 
     // Colliders
@@ -287,9 +287,9 @@ export default class GameScene extends Phaser.Scene {
       height - 60,
       "cloud-normal"
     ) as Phaser.Physics.Arcade.Sprite;
-    plat.setDisplaySize(160, 55);
-    plat.setSize(160 * 0.75, 10);
-    plat.setOffset(160 * 0.125, 4);
+    plat.setDisplaySize(180, 55);
+    plat.setSize(180 * 0.75, 10);
+    plat.setOffset(180 * 0.125, 4);
     plat.refreshBody();
     plat.setDepth(2);
     this.platformsSpawned++;
@@ -298,8 +298,43 @@ export default class GameScene extends Phaser.Scene {
   private spawnPlatform() {
     const width = this.scale.width;
     const rand = Phaser.Math.Between;
+
+    // Dynamic difficulty based on score
+    let spacingMin: number;
+    let spacingMax: number;
+    let platformDisplayWidth: number;
+    let fragileChance: number;
+    let enemyChance: number;
+    let collectableChance: number;
+
+    if (this.score < 500) {
+      // Stage 0: Easy start
+      spacingMin = 55;
+      spacingMax = 90;
+      platformDisplayWidth = 130;
+      fragileChance = 0;
+      enemyChance = 0;
+      collectableChance = 0.30;
+    } else if (this.score < 1500) {
+      // Stage 1: Medium
+      spacingMin = 70;
+      spacingMax = 110;
+      platformDisplayWidth = 120;
+      fragileChance = 0.12;
+      enemyChance = 0.12;
+      collectableChance = 0.22;
+    } else {
+      // Stage 2: Hard
+      spacingMin = 90;
+      spacingMax = 140;
+      platformDisplayWidth = 100;
+      fragileChance = 0.20;
+      enemyChance = 0.20;
+      collectableChance = 0.18;
+    }
+
     const x = rand(PLATFORM_WIDTH / 2 + 10, width - PLATFORM_WIDTH / 2 - 10);
-    const spacing = rand(PLATFORM_SPACING_MIN, PLATFORM_SPACING_MAX);
+    const spacing = rand(spacingMin, spacingMax);
     this.nextPlatformY -= spacing;
     const y = this.nextPlatformY;
 
@@ -311,7 +346,7 @@ export default class GameScene extends Phaser.Scene {
     if (roll < 0.10) {
       platformKey = "cloud-bouncy";
       isBouncy = true;
-    } else if (roll < 0.22 && this.score > 150) {
+    } else if (roll < 0.10 + fragileChance) {
       platformKey = "cloud-fragile";
       isFragile = true;
     } else {
@@ -320,7 +355,7 @@ export default class GameScene extends Phaser.Scene {
 
     const group = isBouncy ? this.cloudsBouncy : isFragile ? this.cloudsFragile : this.cloudsNormal;
     const plat = group.create(x, y, platformKey) as Phaser.Physics.Arcade.Sprite;
-    const dw = isBouncy ? 140 : 120;
+    const dw = isBouncy ? platformDisplayWidth + 20 : platformDisplayWidth;
     const dh = isBouncy ? 50 : 45;
     plat.setDisplaySize(dw, dh);
     plat.setSize(dw * 0.75, 10);
@@ -333,18 +368,18 @@ export default class GameScene extends Phaser.Scene {
       const safeOffset = Phaser.Math.Between(80, 140) * Phaser.Math.RND.pick([1, -1]);
       const safeX = Phaser.Math.Clamp(x + safeOffset, PLATFORM_WIDTH / 2 + 10, width - PLATFORM_WIDTH / 2 - 10);
       const safePlat = this.cloudsNormal.create(safeX, y, "cloud-normal") as Phaser.Physics.Arcade.Sprite;
-      safePlat.setDisplaySize(120, 45);
-      safePlat.setSize(120 * 0.75, 10);
-      safePlat.setOffset(120 * 0.125, 4);
+      safePlat.setDisplaySize(platformDisplayWidth, 45);
+      safePlat.setSize(platformDisplayWidth * 0.75, 10);
+      safePlat.setOffset(platformDisplayWidth * 0.125, 4);
       safePlat.refreshBody();
       safePlat.setDepth(2);
     }
 
-    // Spawn enemy on normal platform only
+    // Spawn enemy or collectable on normal platforms
     this.platformsSpawned++;
-    if (platformKey === "cloud-normal" && Math.random() < 0.18 && this.platformsSpawned > 15) {
+    if (platformKey === "cloud-normal" && Math.random() < enemyChance && this.platformsSpawned > 15) {
       this.spawnEnemy(x, y);
-    } else if (platformKey === "cloud-normal" && Math.random() < 0.20) {
+    } else if (platformKey === "cloud-normal" && Math.random() < collectableChance) {
       this.spawnCollectable(x, y - 20);
     }
   }

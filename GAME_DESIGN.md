@@ -1,8 +1,28 @@
+Base Kitty Jump - Game design and idea document
+Farcaster/Base.
+Котик прыгает вверх 3 фона-зоны, враги
+медведи, темные тучки
+Технический стек
+- Движок: Phaser.js 3.x
+- Фреймворк: Nextjs
+- Wallet: Wagmi + Viem
+- Farcaster: Neynar API
+- Деплой: Vercel
+  Технический стек
+- Движок: Phaser.js 3.x
+- Фреймворк: React + Vite
+- Wallet: Wagmi + Viem
+- Farcaster: Neynar API
+- Деплой: Vercel
 
-Sergio Romanov <speedhall50@gmail.com>
-9:36 PM (14 minutes ago)
-to me
+## Механики (подробно)
+- Управление: drag влево-вправо
+- Атака: тап = выстрел сердечком
+- Платформы: облака
+- Враги: 2 вида...
+- Бонусы: 2 вида...
 
+  
 I want to make a game with mechanics similar to Doodle Jump! With my purple cat) and make the game as a MiniApp for Base.app /Farcaster!
 The mechanics and logic are as follows.
 
@@ -53,4 +73,5 @@ The bear slowly patrols the platform from left to right. If the cat jumps on top
 *
 * Background 1 (Start: 0 - 500 points): "Dark Room / Web2"
 * Style: As on your 2nd screenshot (glowing neon frames, dark background, purple-blue tones). Feeling of enclosed space.
+
 * Background 2 (Middle: 500 - 2000 points): "Farcaster Atmosphere"

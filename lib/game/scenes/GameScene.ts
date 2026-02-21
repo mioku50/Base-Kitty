@@ -68,9 +68,9 @@ export default class GameScene extends Phaser.Scene {
     // Background images — parallax vertical scroll
     const bgKeys = ["bg-stage0", "bg-stage1", "bg-stage2"];
     bgKeys.forEach((key, i) => {
-      const img = this.add.image(width / 2, height * 2, key)
-        .setScrollFactor(0, 0.3)
-        .setDisplaySize(width, height * 4)
+      const img = this.add.image(width / 2, height / 2, key)
+        .setScrollFactor(0)
+        .setDisplaySize(width, height)
         .setDepth(-10)
         .setVisible(i === 0);
       this.bgImages.push(img);

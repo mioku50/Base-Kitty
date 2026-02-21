@@ -18,7 +18,8 @@ Farcaster/Base.
 ## Механики (подробно)
 - Управление: drag влево-вправо
 - Атака: тап = выстрел сердечком
-- Платформы: облака
+- Платформы: облака 3 вида
+  обычное облако , пружинистое облако и тающее облако
 - Враги: 2 вида...
 - Бонусы: 2 вида...
 
@@ -75,3 +76,4 @@ The bear slowly patrols the platform from left to right. If the cat jumps on top
 * Style: As on your 2nd screenshot (glowing neon frames, dark background, purple-blue tones). Feeling of enclosed space.
 
 * Background 2 (Middle: 500 - 2000 points): "Farcaster Atmosphere"
+

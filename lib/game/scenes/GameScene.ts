@@ -19,17 +19,17 @@ const STAGE2_END = 2000;
 
 export default class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
-  private platforms!: Phaser.Physics.Arcade.StaticGroup;
+  private cloudsNormal!: Phaser.Physics.Arcade.StaticGroup;
+  private cloudsBouncy!: Phaser.Physics.Arcade.StaticGroup;
+  private cloudsFragile!: Phaser.Physics.Arcade.StaticGroup;
   private loves!: Phaser.Physics.Arcade.Group;
   private collectables!: Phaser.Physics.Arcade.Group;
   private enemies!: Phaser.Physics.Arcade.Group;
-  private boosts!: Phaser.Physics.Arcade.StaticGroup;
   private scoreText!: Phaser.GameObjects.Text;
   private score = 0;
   private highestY = 0;
   private nextPlatformY = 0;
-  private bgGraphics!: Phaser.GameObjects.Graphics;
-  private stars: Phaser.GameObjects.Arc[] = [];
+  private bgImages: Phaser.GameObjects.Image[] = [];
   private isGameOver = false;
   private lastPointerX = GAME_WIDTH / 2;
   private targetX = GAME_WIDTH / 2;
@@ -38,11 +38,8 @@ export default class GameScene extends Phaser.Scene {
   private shootCooldownMs = 0;
   private bgStage = 0;
   private gameOverCallback?: (score: number) => void;
-  private canJump = true;
-  private redCandleTimer = 0;
-  private fudCloudTimer = 0;
-  private redCandles!: Phaser.Physics.Arcade.Group;
-  private fudClouds!: Phaser.Physics.Arcade.Group;
+  private lastTapTime = 0;
+  private readonly DOUBLE_TAP_THRESHOLD = 300;
   private hookUsed = false;
 
   constructor(onGameOver?: (score: number) => void) {
@@ -59,30 +56,34 @@ export default class GameScene extends Phaser.Scene {
     this.highestY = 0;
     this.bgStage = 0;
     this.hookUsed = false;
+    this.lastTapTime = 0;
   }
 
   create() {
     const height = this.scale.height;
     const width = this.scale.width;
 
-    // Background graphics layer
-    this.bgGraphics = this.add.graphics();
-    this.bgGraphics.setScrollFactor(0);
-    this.bgGraphics.setDepth(-10);
-
-    this.drawBackground(0);
+    // Background images fixed to camera
+    const bgKeys = ["bg-stage0", "bg-stage1", "bg-stage2"];
+    bgKeys.forEach((key, i) => {
+      const img = this.add.image(width / 2, height / 2, key)
+        .setScrollFactor(0)
+        .setDisplaySize(width, height)
+        .setDepth(-10)
+        .setVisible(i === 0);
+      this.bgImages.push(img);
+    });
 
     // Physics world bounds (very tall)
     this.physics.world.setBounds(0, -99999, width, 100000 + height);
 
     // Groups
-    this.platforms = this.physics.add.staticGroup();
+    this.cloudsNormal = this.physics.add.staticGroup();
+    this.cloudsBouncy = this.physics.add.staticGroup();
+    this.cloudsFragile = this.physics.add.staticGroup();
     this.loves = this.physics.add.group();
     this.collectables = this.physics.add.group();
     this.enemies = this.physics.add.group();
-    this.boosts = this.physics.add.staticGroup();
-    this.redCandles = this.physics.add.group();
-    this.fudClouds = this.physics.add.group();
 
     // Generate initial platforms
     this.nextPlatformY = height - 80;
@@ -107,24 +108,51 @@ export default class GameScene extends Phaser.Scene {
     // Colliders
     type PhysicsObj = Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody | Phaser.Tilemaps.Tile;
     const asSprite = (o: PhysicsObj) => o as unknown as Phaser.Physics.Arcade.Sprite;
+
+    // Normal clouds — standard bounce
     this.physics.add.collider(
       this.player,
-      this.platforms,
-      (p) => { asSprite(p).setVelocityY(PLAYER_BOUNCE); asSprite(p).setTexture("jump-up"); },
+      this.cloudsNormal,
+      (p) => { asSprite(p).setVelocityY(PLAYER_BOUNCE); },
       (p) => asSprite(p).body!.velocity.y >= 0,
       this
     );
+
+    // Bouncy clouds — super bounce + rocket texture briefly
     this.physics.add.collider(
       this.player,
-      this.boosts,
-      (p, b) => {
+      this.cloudsBouncy,
+      (p) => {
         asSprite(p).setVelocityY(BOOST_BOUNCE);
-        asSprite(p).setTexture("boost");
-        (b as Phaser.GameObjects.GameObject).destroy();
+        asSprite(p).setTexture("rocket");
       },
       (p) => asSprite(p).body!.velocity.y >= 0,
       this
     );
+
+    // Fragile clouds — bounce then disappear after 1 second
+    this.physics.add.collider(
+      this.player,
+      this.cloudsFragile,
+      (_p, plat) => {
+        const sprite = plat as Phaser.Physics.Arcade.Sprite;
+        const ext = sprite as unknown as { melting?: boolean };
+        if (!ext.melting) {
+          ext.melting = true;
+          asSprite(_p).setVelocityY(PLAYER_BOUNCE);
+          this.tweens.add({
+            targets: sprite,
+            alpha: 0,
+            duration: 800,
+            ease: "Linear",
+          });
+          this.time.delayedCall(1000, () => { if (sprite.active) sprite.destroy(); });
+        }
+      },
+      (p) => asSprite(p).body!.velocity.y >= 0,
+      this
+    );
+
     this.physics.add.overlap(
       this.loves,
       this.enemies,
@@ -132,17 +160,6 @@ export default class GameScene extends Phaser.Scene {
         (love as Phaser.GameObjects.GameObject).destroy();
         this.spawnCollectable(asSprite(enemy).x, asSprite(enemy).y);
         (enemy as Phaser.GameObjects.GameObject).destroy();
-        this.addScore(ENEMY_SCORE);
-      },
-      undefined,
-      this
-    );
-    this.physics.add.overlap(
-      this.loves,
-      this.fudClouds,
-      (love, cloud) => {
-        (love as Phaser.GameObjects.GameObject).destroy();
-        (cloud as Phaser.GameObjects.GameObject).destroy();
         this.addScore(ENEMY_SCORE);
       },
       undefined,
@@ -175,20 +192,6 @@ export default class GameScene extends Phaser.Scene {
       undefined,
       this
     );
-    this.physics.add.overlap(
-      this.player,
-      this.fudClouds,
-      () => { this.triggerGameOver(); },
-      undefined,
-      this
-    );
-    this.physics.add.overlap(
-      this.player,
-      this.redCandles,
-      () => { this.triggerGameOver(); },
-      undefined,
-      this
-    );
 
     // Score HUD (fixed to camera)
     this.scoreText = this.add
@@ -208,9 +211,6 @@ export default class GameScene extends Phaser.Scene {
 
     this.targetX = width / 2;
     this.lastPointerX = width / 2;
-
-    this.redCandleTimer = 3000;
-    this.fudCloudTimer = 5000;
   }
 
   // ─── Input handlers ──────────────────────────────────────────────────────────
@@ -232,9 +232,16 @@ export default class GameScene extends Phaser.Scene {
   private onPointerUp(pointer: Phaser.Input.Pointer) {
     const duration = this.time.now - this.pointerDownTime;
     const dx = Math.abs(pointer.x - this.lastPointerX);
-    // Short tap = shoot
+
     if (duration < 200 && dx < 20) {
-      this.shootLove();
+      // It's a tap — check for double tap
+      const now = this.time.now;
+      if (now - this.lastTapTime < this.DOUBLE_TAP_THRESHOLD) {
+        this.shootLove();
+        this.lastTapTime = 0; // reset
+      } else {
+        this.lastTapTime = now;
+      }
     }
     this.pointerDown = false;
   }
@@ -249,7 +256,7 @@ export default class GameScene extends Phaser.Scene {
       this.player.y - 30,
       "love"
     ) as Phaser.Physics.Arcade.Sprite;
-    love.setDisplaySize(24, 24);
+    love.setDisplaySize(32, 32);
     love.setVelocityY(LOVE_SPEED);
     love.setGravityY(-GRAVITY); // neutralise gravity so projectile flies straight
     love.setDepth(4);
@@ -261,13 +268,14 @@ export default class GameScene extends Phaser.Scene {
   private spawnStartingPlatform() {
     const width = this.scale.width;
     const height = this.scale.height;
-    const plat = this.platforms.create(
+    const plat = this.cloudsNormal.create(
       width / 2,
       height - 60,
-      "cloud-platform"
+      "cloud-normal"
     ) as Phaser.Physics.Arcade.Sprite;
-    plat.setDisplaySize(160, 45);
-    plat.setSize(160, PLATFORM_HEIGHT);
+    plat.setDisplaySize(160, 55);
+    plat.setSize(160 * 0.75, 10);
+    plat.setOffset(160 * 0.125, 4);
     plat.refreshBody();
     plat.setDepth(2);
   }
@@ -280,32 +288,37 @@ export default class GameScene extends Phaser.Scene {
     this.nextPlatformY -= spacing;
     const y = this.nextPlatformY;
 
-    // Invisible physics body
-    const plat = this.platforms.create(
-      x,
-      y,
-      "cloud-platform"
-    ) as Phaser.Physics.Arcade.Sprite;
-    plat.setDisplaySize(120, 45);
-    plat.setSize(PLATFORM_WIDTH, PLATFORM_HEIGHT);
+    const roll = Math.random();
+    let platformKey: string;
+    let isFragile = false;
+    let isBouncy = false;
+
+    if (roll < 0.10) {
+      platformKey = "cloud-bouncy";
+      isBouncy = true;
+    } else if (roll < 0.22 && this.score > 150) {
+      platformKey = "cloud-fragile";
+      isFragile = true;
+    } else {
+      platformKey = "cloud-normal";
+    }
+
+    const group = isBouncy ? this.cloudsBouncy : isFragile ? this.cloudsFragile : this.cloudsNormal;
+    const plat = group.create(x, y, platformKey) as Phaser.Physics.Arcade.Sprite;
+    const dw = isBouncy ? 140 : 120;
+    const dh = isBouncy ? 50 : 45;
+    plat.setDisplaySize(dw, dh);
+    plat.setSize(dw * 0.75, 10);
+    plat.setOffset(dw * 0.125, 4);
     plat.refreshBody();
     plat.setDepth(2);
 
-    // Occasionally spawn a collectable or boost on the platform
-    const roll = Math.random();
-    if (roll < 0.12) {
-      this.spawnBoostOnPlatform(x, y);
-    } else if (roll < 0.28) {
-      this.spawnCollectable(x, y - 20);
-    } else if (roll < 0.38 && this.score > 100) {
+    // Spawn enemy on normal platform only
+    if (platformKey === "cloud-normal" && Math.random() < 0.12 && this.score > 100) {
       this.spawnEnemy(x, y);
+    } else if (platformKey === "cloud-normal" && Math.random() < 0.20) {
+      this.spawnCollectable(x, y - 20);
     }
-  }
-
-  private getPlatformColor(): number {
-    if (this.bgStage === 0) return 0x9b59b6;
-    if (this.bgStage === 1) return 0x3498db;
-    return 0x00d4ff;
   }
 
   private spawnCollectable(x: number, y: number) {
@@ -314,145 +327,19 @@ export default class GameScene extends Phaser.Scene {
       y,
       "base-sphere"
     ) as Phaser.Physics.Arcade.Sprite;
-    sphere.setDisplaySize(22, 22);
+    sphere.setDisplaySize(28, 28);
     sphere.setGravityY(-GRAVITY); // float in place
     sphere.setDepth(3);
   }
 
-  private spawnBoostOnPlatform(x: number, y: number) {
-    const boost = this.boosts.create(
-      x,
-      y - 20,
-      "boost"
-    ) as Phaser.Physics.Arcade.Sprite;
-    boost.setDisplaySize(26, 26);
-    boost.refreshBody();
-    boost.setDepth(3);
-  }
-
   private spawnEnemy(x: number, y: number) {
-    const bear = this.enemies.create(x, y - 20, "fud-bear") as Phaser.Physics.Arcade.Sprite;
-    bear.setDisplaySize(48, 48);
-    bear.setSize(30, 30);
+    const bear = this.enemies.create(x, y - 28, "fud-bear") as Phaser.Physics.Arcade.Sprite;
+    bear.setDisplaySize(52, 52);
+    bear.setSize(36, 36);
+    bear.setOffset(8, 8);
     bear.setGravityY(-GRAVITY);
     bear.setVelocityX(ENEMY_PATROL_SPEED);
     bear.setDepth(3);
-  }
-
-  private spawnRedCandle() {
-    const x = Phaser.Math.Between(20, this.scale.width - 20);
-    const camY = this.cameras.main.scrollY;
-    const candle = this.redCandles.create(
-      x,
-      camY - 30,
-      "red-candle"
-    ) as Phaser.Physics.Arcade.Sprite;
-    candle.setDisplaySize(24, 60);
-    candle.setSize(16, 40);
-    candle.setGravityY(200);
-    candle.setVelocityY(120);
-    candle.setDepth(4);
-  }
-
-  private spawnFudCloud() {
-    const camY = this.cameras.main.scrollY;
-    const fromLeft = Math.random() < 0.5;
-    const startX = fromLeft ? -60 : this.scale.width + 60;
-    const y = camY + Phaser.Math.Between(20, 80);
-    const cloud = this.fudClouds.create(
-      startX,
-      y,
-      "fud-cloud"
-    ) as Phaser.Physics.Arcade.Sprite;
-    cloud.setDisplaySize(90, 50);
-    cloud.setSize(70, 35);
-    cloud.setGravityY(-GRAVITY);
-    cloud.setVelocityX(fromLeft ? ENEMY_PATROL_SPEED * 1.2 : -ENEMY_PATROL_SPEED * 1.2);
-    cloud.setDepth(3);
-  }
-
-  // ─── Background drawing ───────────────────────────────────────────────────
-
-  private drawBackground(stage: number) {
-    const w = this.scale.width;
-    const h = this.scale.height;
-    this.bgGraphics.clear();
-    // Remove old stars
-    this.stars.forEach((s) => s.destroy());
-    this.stars = [];
-
-    if (stage === 0) {
-      this.createNightSkyBackground();
-    } else if (stage === 1) {
-      // Farcaster Atmosphere — indigo/purple gradient
-      this.bgGraphics.fillGradientStyle(0x190041, 0x190041, 0x420d8e, 0x420d8e, 1);
-      this.bgGraphics.fillRect(0, 0, w, h);
-      // Stars
-      for (let i = 0; i < 60; i++) {
-        const sx = Phaser.Math.Between(0, w);
-        const sy = Phaser.Math.Between(0, h);
-        const star = this.add
-          .circle(sx, sy, Phaser.Math.Between(1, 3), 0xffffff, 0.7)
-          .setScrollFactor(0)
-          .setDepth(-9);
-        this.stars.push(star);
-      }
-    } else {
-      // Onchain Heaven — bright sky blue/teal
-      this.bgGraphics.fillGradientStyle(0x00aaff, 0x00aaff, 0x00ffcc, 0x00ffcc, 1);
-      this.bgGraphics.fillRect(0, 0, w, h);
-      // Bright stars/sparkles
-      for (let i = 0; i < 40; i++) {
-        const sx = Phaser.Math.Between(0, w);
-        const sy = Phaser.Math.Between(0, h);
-        const star = this.add
-          .circle(sx, sy, Phaser.Math.Between(2, 5), 0xffffff, 0.9)
-          .setScrollFactor(0)
-          .setDepth(-9);
-        this.stars.push(star);
-      }
-    }
-  }
-
-  private createNightSkyBackground() {
-    const w = this.scale.width;
-    const h = this.scale.height;
-
-    // Dark blue gradient sky
-    this.bgGraphics.fillGradientStyle(0x0a0a2e, 0x0a0a2e, 0x1a1a4e, 0x1a1a4e, 1);
-    this.bgGraphics.fillRect(0, 0, w, h);
-
-    // Moon glow
-    this.bgGraphics.fillStyle(0xffee88, 0.25);
-    this.bgGraphics.fillCircle(w - 50, 55, 35);
-    // Moon
-    this.bgGraphics.fillStyle(0xffee88, 1);
-    this.bgGraphics.fillCircle(w - 50, 55, 25);
-
-    // Stars (~80 scattered across sky)
-    for (let i = 0; i < 80; i++) {
-      const sx = Phaser.Math.Between(0, w);
-      const sy = Phaser.Math.Between(0, h);
-      const r = Phaser.Math.Between(1, 2);
-      const color = Math.random() < 0.7 ? 0xffffff : 0xffffaa;
-      const star = this.add
-        .circle(sx, sy, r, color, 0.8)
-        .setScrollFactor(0)
-        .setDepth(-9);
-      this.stars.push(star);
-
-      // ~30% of stars twinkle
-      if (Math.random() < 0.3) {
-        this.tweens.add({
-          targets: star,
-          alpha: { from: 0.3, to: 1.0 },
-          duration: Phaser.Math.Between(800, 2000),
-          yoyo: true,
-          repeat: -1,
-          delay: Phaser.Math.Between(0, 1000),
-        });
-      }
-    }
   }
 
   // ─── Score helpers ────────────────────────────────────────────────────────
@@ -468,7 +355,7 @@ export default class GameScene extends Phaser.Scene {
       this.score >= STAGE2_END ? 2 : this.score >= STAGE1_END ? 1 : 0;
     if (newStage !== this.bgStage) {
       this.bgStage = newStage;
-      this.drawBackground(this.bgStage);
+      this.bgImages.forEach((img, i) => img.setVisible(i === newStage));
     }
   }
 
@@ -511,7 +398,9 @@ export default class GameScene extends Phaser.Scene {
     // Player texture based on velocity
     if (!this.isGameOver) {
       if (this.player.body!.velocity.y < -50) {
-        this.player.setTexture("jump-up");
+        if (this.player.texture.key !== "rocket") {
+          this.player.setTexture("jump-up");
+        }
       } else if (this.player.body!.velocity.y > 50) {
         this.player.setTexture("fall-down");
       } else {
@@ -532,15 +421,16 @@ export default class GameScene extends Phaser.Scene {
       this.spawnPlatform();
     }
 
-    // Remove platforms and their graphics far below camera
     const cameraBottom = this.cameras.main.scrollY + this.scale.height;
-    this.platforms.getChildren().forEach((p) => {
-      const sprite = p as Phaser.Physics.Arcade.Sprite;
-      if (sprite.y > cameraBottom + 200) {
-        const ext = sprite as unknown as { gfx?: Phaser.GameObjects.Graphics };
-        ext.gfx?.destroy();
-        sprite.destroy();
-      }
+
+    // Remove clouds far below camera
+    [this.cloudsNormal, this.cloudsBouncy, this.cloudsFragile].forEach((group) => {
+      group.getChildren().forEach((p) => {
+        const sprite = p as Phaser.Physics.Arcade.Sprite;
+        if (sprite.y > cameraBottom + 200) {
+          sprite.destroy();
+        }
+      });
     });
 
     // Remove loves that go off screen
@@ -555,69 +445,17 @@ export default class GameScene extends Phaser.Scene {
       if (sprite.y > cameraBottom + 200) sprite.destroy();
     });
 
-    // Update enemy patrol and containers
+    // Update enemy patrol
     this.enemies.getChildren().forEach((e) => {
       const enemy = e as Phaser.Physics.Arcade.Sprite;
-      const ext = enemy as unknown as { container?: Phaser.GameObjects.Container };
-      if (ext.container) {
-        ext.container.x = enemy.x;
-        ext.container.y = enemy.y;
-      }
       // Reverse patrol direction at screen edges
       if (enemy.x < 20 || enemy.x > this.scale.width - 20) {
         enemy.setVelocityX(-enemy.body!.velocity.x);
       }
       if (enemy.y > cameraBottom + 200) {
-        ext.container?.destroy();
         enemy.destroy();
       }
     });
-
-    // Update red candle containers
-    this.redCandles.getChildren().forEach((c) => {
-      const candle = c as Phaser.Physics.Arcade.Sprite;
-      const ext = candle as unknown as { container?: Phaser.GameObjects.Container };
-      if (ext.container) {
-        ext.container.x = candle.x;
-        ext.container.y = candle.y;
-      }
-      if (candle.y > cameraBottom + 200) {
-        ext.container?.destroy();
-        candle.destroy();
-      }
-    });
-
-    // Update fud cloud containers
-    this.fudClouds.getChildren().forEach((c) => {
-      const cloud = c as Phaser.Physics.Arcade.Sprite;
-      const ext = cloud as unknown as { container?: Phaser.GameObjects.Container };
-      if (ext.container) {
-        ext.container.x = cloud.x;
-        ext.container.y = cloud.y;
-      }
-      if (
-        cloud.x > this.scale.width + 100 ||
-        cloud.x < -100 ||
-        cloud.y > cameraBottom + 200
-      ) {
-        ext.container?.destroy();
-        cloud.destroy();
-      }
-    });
-
-    // Spawn red candles
-    this.redCandleTimer -= delta;
-    if (this.redCandleTimer <= 0 && this.score > 200) {
-      this.spawnRedCandle();
-      this.redCandleTimer = Phaser.Math.Between(4000, 8000);
-    }
-
-    // Spawn fud clouds
-    this.fudCloudTimer -= delta;
-    if (this.fudCloudTimer <= 0 && this.score > 300) {
-      this.spawnFudCloud();
-      this.fudCloudTimer = Phaser.Math.Between(5000, 10000);
-    }
 
     // Game over if player falls below camera bottom
     if (this.player.y > cameraBottom + 60) {

@@ -8,16 +8,10 @@ Farcaster/Base.
 - Wallet: Wagmi + Viem
 - Farcaster: Neynar API
 - Деплой: Vercel
-  Технический стек
-- Движок: Phaser.js 3.x
-- Фреймворк: React + Vite
-- Wallet: Wagmi + Viem
-- Farcaster: Neynar API
-- Деплой: Vercel
 
 ## Механики (подробно)
 - Управление: drag влево-вправо
-- Атака: тап = выстрел сердечком
+- Атака: даойной тап = выстрел сердечком
 - Платформы: облака 3 вида
   обычное облако , пружинистое облако и тающее облако
 - Враги: 2 вида...
@@ -76,4 +70,5 @@ The bear slowly patrols the platform from left to right. If the cat jumps on top
 * Style: As on your 2nd screenshot (glowing neon frames, dark background, purple-blue tones). Feeling of enclosed space.
 
 * Background 2 (Middle: 500 - 2000 points): "Farcaster Atmosphere"
+
 

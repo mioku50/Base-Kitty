@@ -63,12 +63,12 @@ export default class GameScene extends Phaser.Scene {
     const height = this.scale.height;
     const width = this.scale.width;
 
-    // Background images fixed to camera
+    // Background images — parallax vertical scroll
     const bgKeys = ["bg-stage0", "bg-stage1", "bg-stage2"];
     bgKeys.forEach((key, i) => {
-      const img = this.add.image(width / 2, height / 2, key)
-        .setScrollFactor(0)
-        .setDisplaySize(width, height)
+      const img = this.add.image(width / 2, height * 2, key)
+        .setScrollFactor(0, 0.3)
+        .setDisplaySize(width, height * 4)
         .setDepth(-10)
         .setVisible(i === 0);
       this.bgImages.push(img);
@@ -102,6 +102,11 @@ export default class GameScene extends Phaser.Scene {
     this.player.setDepth(5);
     this.highestY = this.player.y;
 
+    // Add soft glow to player so it always stands out against dark backgrounds
+    if (this.player.preFX) {
+      this.player.preFX.addGlow(0xffccee, 6, 0, false, 0.1, 16);
+    }
+
     // Camera
     this.cameras.main.setBounds(0, -99999, width, 100000 + height);
     this.cameras.main.startFollow(this.player, true, 1, 0.1);
@@ -133,23 +138,27 @@ export default class GameScene extends Phaser.Scene {
       this
     );
 
-    // Fragile clouds — bounce then disappear after 1 second
+    // Fragile clouds — player falls through immediately, platform crumbles
     this.physics.add.collider(
       this.player,
       this.cloudsFragile,
       (_p, plat) => {
         const sprite = plat as Phaser.Physics.Arcade.Sprite;
-        const ext = sprite as unknown as { melting?: boolean };
-        if (!ext.melting) {
-          ext.melting = true;
-          asSprite(_p).setVelocityY(PLAYER_BOUNCE);
+        const ext = sprite as unknown as { crumbling?: boolean };
+        if (!ext.crumbling) {
+          ext.crumbling = true;
+          // Give a tiny bounce so the player has a moment to react
+          asSprite(_p).setVelocityY(PLAYER_BOUNCE * 0.3);
+          // Fast crumble: fade out in 200ms
           this.tweens.add({
             targets: sprite,
             alpha: 0,
-            duration: 800,
-            ease: "Linear",
+            duration: 200,
+            ease: 'Power2.easeOut',
+            onComplete: () => {
+              if (sprite.active) sprite.destroy();
+            },
           });
-          this.time.delayedCall(1000, () => { if (sprite.active) sprite.destroy(); });
         }
       },
       (p) => asSprite(p).body!.velocity.y >= 0,
@@ -315,6 +324,18 @@ export default class GameScene extends Phaser.Scene {
     plat.setOffset(dw * 0.125, 4);
     plat.refreshBody();
     plat.setDepth(2);
+
+    if (isFragile) {
+      // Always spawn a guaranteed safe normal cloud nearby
+      const safeOffset = Phaser.Math.Between(80, 140) * Phaser.Math.RND.pick([1, -1]);
+      const safeX = Phaser.Math.Clamp(x + safeOffset, PLATFORM_WIDTH / 2 + 10, width - PLATFORM_WIDTH / 2 - 10);
+      const safePlat = this.cloudsNormal.create(safeX, y, "cloud-normal") as Phaser.Physics.Arcade.Sprite;
+      safePlat.setDisplaySize(120, 45);
+      safePlat.setSize(120 * 0.75, 10);
+      safePlat.setOffset(120 * 0.125, 4);
+      safePlat.refreshBody();
+      safePlat.setDepth(2);
+    }
 
     // Spawn enemy on normal platform only
     if (platformKey === "cloud-normal" && Math.random() < 0.12 && this.score > 100) {

@@ -94,7 +94,9 @@ export default class GameScene extends Phaser.Scene {
 
     // Player
     this.player = this.physics.add.sprite(width / 2, height - 120, "jump-up");
-    this.player.setDisplaySize(56, 56);
+    // Scale to a target height of 64px, preserving aspect ratio
+    this.player.setScale(64 / this.player.height);
+    this.player.setBodySize(this.player.displayWidth * 0.6, this.player.displayHeight * 0.85);
     this.player.setCollideWorldBounds(false);
     this.player.setGravityY(GRAVITY);
     this.player.setDepth(5);
@@ -125,6 +127,7 @@ export default class GameScene extends Phaser.Scene {
       (p) => {
         asSprite(p).setVelocityY(BOOST_BOUNCE);
         asSprite(p).setTexture("rocket");
+        asSprite(p).setScale(64 / asSprite(p).height);
       },
       (p) => asSprite(p).body!.velocity.y >= 0,
       this
@@ -256,7 +259,7 @@ export default class GameScene extends Phaser.Scene {
       this.player.y - 30,
       "love"
     ) as Phaser.Physics.Arcade.Sprite;
-    love.setDisplaySize(32, 32);
+    love.setScale(32 / Math.max(love.width, love.height));
     love.setVelocityY(LOVE_SPEED);
     love.setGravityY(-GRAVITY); // neutralise gravity so projectile flies straight
     love.setDepth(4);
@@ -327,16 +330,16 @@ export default class GameScene extends Phaser.Scene {
       y,
       "base-sphere"
     ) as Phaser.Physics.Arcade.Sprite;
-    sphere.setDisplaySize(28, 28);
+    sphere.setScale(32 / Math.max(sphere.width, sphere.height));
     sphere.setGravityY(-GRAVITY); // float in place
     sphere.setDepth(3);
   }
 
   private spawnEnemy(x: number, y: number) {
     const bear = this.enemies.create(x, y - 28, "fud-bear") as Phaser.Physics.Arcade.Sprite;
-    bear.setDisplaySize(52, 52);
-    bear.setSize(36, 36);
-    bear.setOffset(8, 8);
+    bear.setScale(56 / Math.max(bear.width, bear.height));
+    bear.setBodySize(bear.displayWidth * 0.65, bear.displayHeight * 0.75);
+    bear.setOffset(bear.displayWidth * 0.175, bear.displayHeight * 0.125);
     bear.setGravityY(-GRAVITY);
     bear.setVelocityX(ENEMY_PATROL_SPEED);
     bear.setDepth(3);
@@ -400,11 +403,14 @@ export default class GameScene extends Phaser.Scene {
       if (this.player.body!.velocity.y < -50) {
         if (this.player.texture.key !== "rocket") {
           this.player.setTexture("jump-up");
+          this.player.setScale(64 / this.player.height);
         }
       } else if (this.player.body!.velocity.y > 50) {
         this.player.setTexture("fall-down");
+        this.player.setScale(64 / this.player.height);
       } else {
         this.player.setTexture("idle");
+        this.player.setScale(64 / this.player.height);
       }
     }
 

@@ -322,24 +322,24 @@ export default class GameScene extends Phaser.Scene {
       spacingMax = 90;
       platformDisplayWidth = 130;
       fragileChance = 0;
-      enemyChance = 0;
-      collectableChance = 0.30;
+      enemyChance = 0.10;
+      collectableChance = 0.40;
     } else if (this.score < 1500) {
       // Stage 1: Medium
       spacingMin = 70;
       spacingMax = 110;
       platformDisplayWidth = 120;
       fragileChance = 0.12;
-      enemyChance = 0.12;
-      collectableChance = 0.22;
+      enemyChance = 0.15;
+      collectableChance = 0.28;
     } else {
       // Stage 2: Hard
       spacingMin = 90;
       spacingMax = 140;
       platformDisplayWidth = 100;
       fragileChance = 0.20;
-      enemyChance = 0.20;
-      collectableChance = 0.18;
+      enemyChance = 0.22;
+      collectableChance = 0.22;
     }
 
     const x = rand(PLATFORM_WIDTH / 2 + 10, width - PLATFORM_WIDTH / 2 - 10);
@@ -400,7 +400,7 @@ export default class GameScene extends Phaser.Scene {
 
     // Spawn enemy or collectable on normal platforms
     this.platformsSpawned++;
-    if (platformKey === "cloud-normal" && Math.random() < enemyChance && this.platformsSpawned > 15) {
+    if (platformKey === "cloud-normal" && Math.random() < enemyChance && this.platformsSpawned > 5) {
       this.spawnEnemy(x, y);
     } else if (platformKey === "cloud-normal" && Math.random() < collectableChance) {
       this.spawnCollectable(x, y - 20);

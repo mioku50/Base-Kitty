@@ -9,7 +9,10 @@ const PLATFORM_SPACING_MIN = 60;
 const PLATFORM_SPACING_MAX = 120;
 const GRAVITY = 700;
 const LOVE_SPEED = -700;
-const ENEMY_PATROL_SPEED = 60;
+const ENEMY_PATROL_SPEED = 55;
+const CANDLE_SPEED = 350;
+const CANDLE_INTERVAL_BASE = 2500;  // ms
+const CANDLE_INTERVAL_MIN = 1000;   // ms floor
 const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
 // Cloud drift speeds per stage (min, max)
@@ -31,6 +34,7 @@ export default class GameScene extends Phaser.Scene {
   private loves!: Phaser.Physics.Arcade.Group;
   private collectables!: Phaser.Physics.Arcade.Group;
   private enemies!: Phaser.Physics.Arcade.Group;
+  private candles!: Phaser.Physics.Arcade.Group;
   private scoreText!: Phaser.GameObjects.Text;
   private score = 0;
   private highestY = 0;
@@ -92,6 +96,7 @@ export default class GameScene extends Phaser.Scene {
     this.loves = this.physics.add.group();
     this.collectables = this.physics.add.group();
     this.enemies = this.physics.add.group();
+    this.candles = this.physics.add.group();
 
     // Generate initial platforms
     this.nextPlatformY = height - 80;
@@ -173,14 +178,19 @@ export default class GameScene extends Phaser.Scene {
       this
     );
 
+    // Heart hits bear -> bear destroyed, +50 score
     this.physics.add.overlap(
       this.loves,
       this.enemies,
       (love, enemy) => {
         (love as Phaser.GameObjects.GameObject).destroy();
-        this.spawnCollectable(asSprite(enemy).x, asSprite(enemy).y);
+        const e = asSprite(enemy);
+        // Cancel candle timer before destroying
+        const timer = e.getData('candleTimer') as Phaser.Time.TimerEvent | undefined;
+        if (timer) timer.remove(false);
+        this.spawnCollectable(e.x, e.y);
         (enemy as Phaser.GameObjects.GameObject).destroy();
-        this.addScore(ENEMY_SCORE);
+        this.addScore(50);
       },
       undefined,
       this
@@ -195,19 +205,21 @@ export default class GameScene extends Phaser.Scene {
       undefined,
       this
     );
+    // Any contact with bear = Game Over
     this.physics.add.overlap(
       this.player,
       this.enemies,
-      (player, enemy) => {
-        const p = asSprite(player);
-        const e = asSprite(enemy);
-        if (p.body!.velocity.y > 0 && p.y < e.y - 10) {
-          p.setVelocityY(PLAYER_BOUNCE);
-          (e as Phaser.GameObjects.GameObject).destroy();
-          this.addScore(ENEMY_SCORE);
-        } else {
-          this.triggerGameOver();
-        }
+      () => { this.triggerGameOver(); },
+      undefined,
+      this
+    );
+    // Candle hits player = Game Over
+    this.physics.add.overlap(
+      this.player,
+      this.candles,
+      (_p: Phaser.Types.Physics.Arcade.GameObjectWithBody, candle: Phaser.Types.Physics.Arcade.GameObjectWithBody) => {
+        (candle as Phaser.GameObjects.GameObject).destroy();
+        this.triggerGameOver();
       },
       undefined,
       this
@@ -401,7 +413,7 @@ export default class GameScene extends Phaser.Scene {
     // Spawn enemy or collectable on normal platforms
     this.platformsSpawned++;
     if (platformKey === "cloud-normal" && Math.random() < enemyChance && this.platformsSpawned > 5) {
-      this.spawnEnemy(x, y);
+      this.spawnEnemy(x, y, dw);
     } else if (platformKey === "cloud-normal" && Math.random() < collectableChance) {
       this.spawnCollectable(x, y - 20);
     }
@@ -418,14 +430,50 @@ export default class GameScene extends Phaser.Scene {
     sphere.setDepth(3);
   }
 
-  private spawnEnemy(x: number, y: number) {
-    const bear = this.enemies.create(x, y - 30, "fud-bear") as Phaser.Physics.Arcade.Sprite;
+  private spawnEnemy(platX: number, platY: number, platWidth: number) {
+    const bear = this.enemies.create(platX, platY - 30, "fud-bear") as Phaser.Physics.Arcade.Sprite;
     bear.setDisplaySize(52, 52);
     bear.setBodySize(34, 40);
     bear.setOffset(9, 6);
     bear.setGravityY(-GRAVITY);
-    bear.setVelocityX(ENEMY_PATROL_SPEED);
     bear.setDepth(3);
+
+    // Patrol bounds — stay on top of their platform
+    const halfPlat = platWidth / 2;
+    const leftBound  = platX - halfPlat + 10;
+    const rightBound = platX + halfPlat - 10;
+    bear.setData('leftBound', leftBound);
+    bear.setData('rightBound', rightBound);
+    bear.setData('platY', platY);
+
+    // Patrol speed scales with score: +5 px/s every 200 pts
+    const speedBoost = Math.floor(this.score / 200) * 5;
+    const speed = ENEMY_PATROL_SPEED + speedBoost;
+    bear.setVelocityX(speed);
+    bear.setData('speed', speed);
+
+    // Candle throw interval scales with score: -100ms every 200 pts
+    const intervalReduction = Math.floor(this.score / 200) * 100;
+    const interval = Math.max(CANDLE_INTERVAL_MIN, CANDLE_INTERVAL_BASE - intervalReduction);
+
+    const timer = this.time.addEvent({
+      delay: interval,
+      loop: true,
+      callback: () => {
+        if (!bear.active || this.isGameOver) return;
+        this.throwCandle(bear.x, bear.y + 20);
+      },
+    });
+    bear.setData('candleTimer', timer);
+  }
+
+  private throwCandle(x: number, y: number) {
+    const candle = this.candles.create(x, y, "love") as Phaser.Physics.Arcade.Sprite;
+    candle.setDisplaySize(18, 28);
+    candle.setTint(0xff2222);
+    candle.setGravityY(-GRAVITY);
+    candle.setVelocityY(CANDLE_SPEED);
+    candle.setDepth(4);
   }
 
   // ─── Score helpers ────────────────────────────────────────────────────────
@@ -549,15 +597,32 @@ export default class GameScene extends Phaser.Scene {
       if (sprite.y > cameraBottom + 200) sprite.destroy();
     });
 
-    // Update enemy patrol
+    // Update enemy patrol — bounce within platform bounds
     this.enemies.getChildren().forEach((e) => {
       const enemy = e as Phaser.Physics.Arcade.Sprite;
-      // Reverse patrol direction at screen edges
-      if (enemy.x < 20 || enemy.x > GAME_WIDTH - 20) {
-        enemy.setVelocityX(-enemy.body!.velocity.x);
-      }
       if (enemy.y > cameraBottom + 200) {
+        const timer = enemy.getData('candleTimer') as Phaser.Time.TimerEvent | undefined;
+        if (timer) timer.remove(false);
         enemy.destroy();
+        return;
+      }
+      const leftBound  = enemy.getData('leftBound') as number ?? 20;
+      const rightBound = enemy.getData('rightBound') as number ?? GAME_WIDTH - 20;
+      const speed      = enemy.getData('speed') as number ?? ENEMY_PATROL_SPEED;
+      if (enemy.x <= leftBound) {
+        enemy.setVelocityX(Math.abs(speed));
+        enemy.setFlipX(false);
+      } else if (enemy.x >= rightBound) {
+        enemy.setVelocityX(-Math.abs(speed));
+        enemy.setFlipX(true);
+      }
+    });
+
+    // Remove candles that go off screen
+    this.candles.getChildren().forEach((c: Phaser.GameObjects.GameObject) => {
+      const candle = c as Phaser.Physics.Arcade.Sprite;
+      if (candle.y > cameraBottom + 100 || candle.y < cameraTop - 100) {
+        candle.destroy();
       }
     });
 

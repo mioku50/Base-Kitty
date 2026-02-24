@@ -467,8 +467,8 @@ export default class GameScene extends Phaser.Scene {
     this.player.x += dx * lerpFactor;
 
     // Screen wrap horizontal
-    if (this.player.x < -10) this.player.x = this.scale.width + 10;
-    if (this.player.x > this.scale.width + 10) this.player.x = -10;
+    if (this.player.x < -10) this.player.x = GAME_WIDTH + 10;
+    if (this.player.x > GAME_WIDTH + 10) this.player.x = -10;
 
     // Shoot cooldown
     if (this.shootCooldownMs > 0) {
@@ -499,12 +499,13 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // Generate more platforms ahead
-    const cameraTop = this.cameras.main.scrollY;
+    const cam = this.cameras.main as Phaser.Cameras.Scene2D.Camera;
+    const cameraTop = cam.scrollY;
     while (this.nextPlatformY > cameraTop - 200) {
       this.spawnPlatform();
     }
 
-    const cameraBottom = this.cameras.main.scrollY + this.cameras.main.height;
+    const cameraBottom = cam.scrollY + cam.height;
 
     // Update cloud positions with drift and handle cleanup
     [this.cloudsNormal, this.cloudsBouncy, this.cloudsFragile].forEach((group) => {
@@ -524,7 +525,7 @@ export default class GameScene extends Phaser.Scene {
             }
             
             // Refresh static body after position change
-            sprite.body.updateFromGameObject();
+            (sprite.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
           }
         }
       });
@@ -546,7 +547,7 @@ export default class GameScene extends Phaser.Scene {
     this.enemies.getChildren().forEach((e) => {
       const enemy = e as Phaser.Physics.Arcade.Sprite;
       // Reverse patrol direction at screen edges
-      if (enemy.x < 20 || enemy.x > this.scale.width - 20) {
+      if (enemy.x < 20 || enemy.x > GAME_WIDTH - 20) {
         enemy.setVelocityX(-enemy.body!.velocity.x);
       }
       if (enemy.y > cameraBottom + 200) {

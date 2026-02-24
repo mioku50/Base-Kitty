@@ -12,8 +12,12 @@ const LOVE_SPEED = -700;
 const ENEMY_PATROL_SPEED = 60;
 const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
-const CLOUD_DRIFT_SPEED_MIN = 15;
-const CLOUD_DRIFT_SPEED_MAX = 35;
+// Cloud drift speeds per stage (min, max)
+const CLOUD_DRIFT_SPEEDS = [
+  { min: 15, max: 30 },  // Stage 0: slow
+  { min: 30, max: 55 },  // Stage 1: medium
+  { min: 55, max: 85 },  // Stage 2: fast
+];
 
 // Background stage thresholds (in score units)
 const STAGE1_END = 500;
@@ -368,8 +372,10 @@ export default class GameScene extends Phaser.Scene {
     plat.refreshBody();
     plat.setDepth(2);
 
-    // Add gentle horizontal drift to clouds
-    const driftSpeed = Phaser.Math.Between(CLOUD_DRIFT_SPEED_MIN, CLOUD_DRIFT_SPEED_MAX);
+    // Add horizontal drift — speed increases per stage
+    const stage = this.score < 500 ? 0 : this.score < 1500 ? 1 : 2;
+    const driftRange = CLOUD_DRIFT_SPEEDS[stage];
+    const driftSpeed = Phaser.Math.Between(driftRange.min, driftRange.max);
     const driftDirection = Phaser.Math.RND.pick([-1, 1]);
     plat.setData('driftSpeed', driftSpeed * driftDirection);
 
@@ -384,8 +390,10 @@ export default class GameScene extends Phaser.Scene {
       safePlat.refreshBody();
       safePlat.setDepth(2);
 
-      // Add drift to safe platform too
-      const safeDriftSpeed = Phaser.Math.Between(CLOUD_DRIFT_SPEED_MIN, CLOUD_DRIFT_SPEED_MAX);
+      // Add drift to safe platform too (same stage speed)
+      const stageSafe = this.score < 500 ? 0 : this.score < 1500 ? 1 : 2;
+      const safeRange = CLOUD_DRIFT_SPEEDS[stageSafe];
+      const safeDriftSpeed = Phaser.Math.Between(safeRange.min, safeRange.max);
       const safeDriftDirection = Phaser.Math.RND.pick([-1, 1]);
       safePlat.setData('driftSpeed', safeDriftSpeed * safeDriftDirection);
     }
@@ -405,18 +413,16 @@ export default class GameScene extends Phaser.Scene {
       y,
       "base-sphere"
     ) as Phaser.Physics.Arcade.Sprite;
-    sphere.setScale(32 / Math.max(sphere.width, sphere.height));
+    sphere.setDisplaySize(36, 36);
     sphere.setGravityY(-GRAVITY); // float in place
     sphere.setDepth(3);
   }
 
   private spawnEnemy(x: number, y: number) {
-    const bear = this.enemies.create(x, y - 28, "fud-bear") as Phaser.Physics.Arcade.Sprite;
-    bear.setScale(56 / Math.max(bear.width, bear.height));
-    const bw = bear.displayWidth * 0.65;
-    const bh = bear.displayHeight * 0.75;
-    bear.setBodySize(bw, bh);
-    bear.setOffset((bear.displayWidth - bw) / 2, (bear.displayHeight - bh) / 2);
+    const bear = this.enemies.create(x, y - 30, "fud-bear") as Phaser.Physics.Arcade.Sprite;
+    bear.setDisplaySize(52, 52);
+    bear.setBodySize(34, 40);
+    bear.setOffset(9, 6);
     bear.setGravityY(-GRAVITY);
     bear.setVelocityX(ENEMY_PATROL_SPEED);
     bear.setDepth(3);

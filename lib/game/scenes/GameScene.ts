@@ -292,6 +292,7 @@ export default class GameScene extends Phaser.Scene {
     plat.setDisplaySize(180, 55);
     plat.setSize(180 * 0.75, 10);
     plat.setOffset(180 * 0.125, 4);
+    plat.setImmovable(true);
     plat.refreshBody();
     plat.setDepth(2);
 
@@ -365,6 +366,7 @@ export default class GameScene extends Phaser.Scene {
     plat.setDisplaySize(dw, dh);
     plat.setSize(dw * 0.75, 10);
     plat.setOffset(dw * 0.125, 4);
+    plat.setImmovable(true);
     plat.refreshBody();
     plat.setDepth(2);
 
@@ -381,6 +383,7 @@ export default class GameScene extends Phaser.Scene {
       safePlat.setDisplaySize(platformDisplayWidth, 45);
       safePlat.setSize(platformDisplayWidth * 0.75, 10);
       safePlat.setOffset(platformDisplayWidth * 0.125, 4);
+      safePlat.setImmovable(true);
       safePlat.refreshBody();
       safePlat.setDepth(2);
 

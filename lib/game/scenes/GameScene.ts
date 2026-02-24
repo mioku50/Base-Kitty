@@ -21,9 +21,9 @@ const STAGE2_END = 2000;
 
 export default class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
-  private cloudsNormal!: Phaser.Physics.Arcade.Group;
-  private cloudsBouncy!: Phaser.Physics.Arcade.Group;
-  private cloudsFragile!: Phaser.Physics.Arcade.Group;
+  private cloudsNormal!: Phaser.Physics.Arcade.StaticGroup;
+  private cloudsBouncy!: Phaser.Physics.Arcade.StaticGroup;
+  private cloudsFragile!: Phaser.Physics.Arcade.StaticGroup;
   private loves!: Phaser.Physics.Arcade.Group;
   private collectables!: Phaser.Physics.Arcade.Group;
   private enemies!: Phaser.Physics.Arcade.Group;
@@ -82,9 +82,9 @@ export default class GameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, -99999, width, 100000 + height);
 
     // Groups
-    this.cloudsNormal = this.physics.add.group({ allowGravity: false, immovable: true });
-    this.cloudsBouncy = this.physics.add.group({ allowGravity: false, immovable: true });
-    this.cloudsFragile = this.physics.add.group({ allowGravity: false, immovable: true });
+    this.cloudsNormal = this.physics.add.staticGroup();
+    this.cloudsBouncy = this.physics.add.staticGroup();
+    this.cloudsFragile = this.physics.add.staticGroup();
     this.loves = this.physics.add.group();
     this.collectables = this.physics.add.group();
     this.enemies = this.physics.add.group();
@@ -292,12 +292,11 @@ export default class GameScene extends Phaser.Scene {
     plat.setDisplaySize(180, 55);
     plat.setSize(180 * 0.75, 10);
     plat.setOffset(180 * 0.125, 4);
-    plat.setImmovable(true);
     plat.refreshBody();
     plat.setDepth(2);
 
     // Starting platform has minimal drift
-    plat.setVelocityX(Phaser.Math.Between(-10, 10));
+    plat.setData('driftSpeed', Phaser.Math.Between(-10, 10));
     this.platformsSpawned++;
   }
 
@@ -366,14 +365,13 @@ export default class GameScene extends Phaser.Scene {
     plat.setDisplaySize(dw, dh);
     plat.setSize(dw * 0.75, 10);
     plat.setOffset(dw * 0.125, 4);
-    plat.setImmovable(true);
     plat.refreshBody();
     plat.setDepth(2);
 
     // Add gentle horizontal drift to clouds
     const driftSpeed = Phaser.Math.Between(CLOUD_DRIFT_SPEED_MIN, CLOUD_DRIFT_SPEED_MAX);
     const driftDirection = Phaser.Math.RND.pick([-1, 1]);
-    plat.setVelocityX(driftSpeed * driftDirection);
+    plat.setData('driftSpeed', driftSpeed * driftDirection);
 
     if (isFragile) {
       // Always spawn a guaranteed safe normal cloud nearby
@@ -383,14 +381,13 @@ export default class GameScene extends Phaser.Scene {
       safePlat.setDisplaySize(platformDisplayWidth, 45);
       safePlat.setSize(platformDisplayWidth * 0.75, 10);
       safePlat.setOffset(platformDisplayWidth * 0.125, 4);
-      safePlat.setImmovable(true);
       safePlat.refreshBody();
       safePlat.setDepth(2);
 
       // Add drift to safe platform too
       const safeDriftSpeed = Phaser.Math.Between(CLOUD_DRIFT_SPEED_MIN, CLOUD_DRIFT_SPEED_MAX);
       const safeDriftDirection = Phaser.Math.RND.pick([-1, 1]);
-      safePlat.setVelocityX(safeDriftSpeed * safeDriftDirection);
+      safePlat.setData('driftSpeed', safeDriftSpeed * safeDriftDirection);
     }
 
     // Spawn enemy or collectable on normal platforms
@@ -509,16 +506,25 @@ export default class GameScene extends Phaser.Scene {
 
     const cameraBottom = this.cameras.main.scrollY + this.cameras.main.height;
 
-    // Remove clouds far below camera and handle edge bouncing
+    // Update cloud positions with drift and handle cleanup
     [this.cloudsNormal, this.cloudsBouncy, this.cloudsFragile].forEach((group) => {
       group.getChildren().forEach((p) => {
         const sprite = p as Phaser.Physics.Arcade.Sprite;
         if (sprite.y > cameraBottom + 200) {
           sprite.destroy();
         } else {
-          // Reverse drift direction at screen edges
-          if (sprite.x < 30 || sprite.x > GAME_WIDTH - 30) {
-            sprite.setVelocityX(-sprite.body!.velocity.x);
+          // Apply drift movement to static bodies
+          const driftSpeed = sprite.getData('driftSpeed') || 0;
+          if (driftSpeed !== 0) {
+            sprite.x += driftSpeed * (delta / 1000);
+            
+            // Reverse drift direction at screen edges
+            if (sprite.x < 30 || sprite.x > GAME_WIDTH - 30) {
+              sprite.setData('driftSpeed', -driftSpeed);
+            }
+            
+            // Refresh static body after position change
+            sprite.body.updateFromGameObject();
           }
         }
       });

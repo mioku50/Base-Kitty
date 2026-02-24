@@ -217,8 +217,8 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.overlap(
       this.player,
       this.candles,
-      (_p: Phaser.Types.Physics.Arcade.GameObjectWithBody, candle: Phaser.Types.Physics.Arcade.GameObjectWithBody) => {
-        (candle as Phaser.GameObjects.GameObject).destroy();
+      (_p: PhysicsObj, candle: PhysicsObj) => {
+        asSprite(candle).destroy();
         this.triggerGameOver();
       },
       undefined,

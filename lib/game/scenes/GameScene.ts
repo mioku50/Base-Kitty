@@ -12,6 +12,8 @@ const LOVE_SPEED = -700;
 const ENEMY_PATROL_SPEED = 60;
 const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
+const CLOUD_DRIFT_SPEED_MIN = 15;
+const CLOUD_DRIFT_SPEED_MAX = 35;
 
 // Background stage thresholds (in score units)
 const STAGE1_END = 500;
@@ -19,9 +21,9 @@ const STAGE2_END = 2000;
 
 export default class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite;
-  private cloudsNormal!: Phaser.Physics.Arcade.StaticGroup;
-  private cloudsBouncy!: Phaser.Physics.Arcade.StaticGroup;
-  private cloudsFragile!: Phaser.Physics.Arcade.StaticGroup;
+  private cloudsNormal!: Phaser.Physics.Arcade.Group;
+  private cloudsBouncy!: Phaser.Physics.Arcade.Group;
+  private cloudsFragile!: Phaser.Physics.Arcade.Group;
   private loves!: Phaser.Physics.Arcade.Group;
   private collectables!: Phaser.Physics.Arcade.Group;
   private enemies!: Phaser.Physics.Arcade.Group;
@@ -80,9 +82,9 @@ export default class GameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, -99999, width, 100000 + height);
 
     // Groups
-    this.cloudsNormal = this.physics.add.staticGroup();
-    this.cloudsBouncy = this.physics.add.staticGroup();
-    this.cloudsFragile = this.physics.add.staticGroup();
+    this.cloudsNormal = this.physics.add.group({ allowGravity: false, immovable: true });
+    this.cloudsBouncy = this.physics.add.group({ allowGravity: false, immovable: true });
+    this.cloudsFragile = this.physics.add.group({ allowGravity: false, immovable: true });
     this.loves = this.physics.add.group();
     this.collectables = this.physics.add.group();
     this.enemies = this.physics.add.group();
@@ -96,8 +98,8 @@ export default class GameScene extends Phaser.Scene {
 
     // Player
     this.player = this.physics.add.sprite(width / 2, height - 120, "jump-up");
-    // Scale to a target height of 64px, preserving aspect ratio
-    this.player.setScale(64 / this.player.height);
+    // Scale to a target height of 85px, preserving aspect ratio
+    this.player.setScale(85 / this.player.height);
     this.player.setBodySize(this.player.displayWidth * 0.6, this.player.displayHeight * 0.85);
     this.player.setCollideWorldBounds(false);
     this.player.setGravityY(GRAVITY);
@@ -134,7 +136,7 @@ export default class GameScene extends Phaser.Scene {
       (p) => {
         asSprite(p).setVelocityY(BOOST_BOUNCE);
         asSprite(p).setTexture("rocket");
-        asSprite(p).setScale(64 / asSprite(p).height);
+        asSprite(p).setScale(85 / asSprite(p).height);
       },
       (p) => asSprite(p).body!.velocity.y >= 0,
       this
@@ -292,6 +294,9 @@ export default class GameScene extends Phaser.Scene {
     plat.setOffset(180 * 0.125, 4);
     plat.refreshBody();
     plat.setDepth(2);
+
+    // Starting platform has minimal drift
+    plat.setVelocityX(Phaser.Math.Between(-10, 10));
     this.platformsSpawned++;
   }
 
@@ -363,6 +368,11 @@ export default class GameScene extends Phaser.Scene {
     plat.refreshBody();
     plat.setDepth(2);
 
+    // Add gentle horizontal drift to clouds
+    const driftSpeed = Phaser.Math.Between(CLOUD_DRIFT_SPEED_MIN, CLOUD_DRIFT_SPEED_MAX);
+    const driftDirection = Phaser.Math.RND.pick([-1, 1]);
+    plat.setVelocityX(driftSpeed * driftDirection);
+
     if (isFragile) {
       // Always spawn a guaranteed safe normal cloud nearby
       const safeOffset = Phaser.Math.Between(80, 140) * Phaser.Math.RND.pick([1, -1]);
@@ -373,6 +383,11 @@ export default class GameScene extends Phaser.Scene {
       safePlat.setOffset(platformDisplayWidth * 0.125, 4);
       safePlat.refreshBody();
       safePlat.setDepth(2);
+
+      // Add drift to safe platform too
+      const safeDriftSpeed = Phaser.Math.Between(CLOUD_DRIFT_SPEED_MIN, CLOUD_DRIFT_SPEED_MAX);
+      const safeDriftDirection = Phaser.Math.RND.pick([-1, 1]);
+      safePlat.setVelocityX(safeDriftSpeed * safeDriftDirection);
     }
 
     // Spawn enemy or collectable on normal platforms
@@ -465,14 +480,14 @@ export default class GameScene extends Phaser.Scene {
       if (this.player.body!.velocity.y < -50) {
         if (this.player.texture.key !== "rocket") {
           this.player.setTexture("jump-up");
-          this.player.setScale(64 / this.player.height);
+          this.player.setScale(85 / this.player.height);
         }
       } else if (this.player.body!.velocity.y > 50) {
         this.player.setTexture("fall-down");
-        this.player.setScale(64 / this.player.height);
+        this.player.setScale(85 / this.player.height);
       } else {
         this.player.setTexture("idle");
-        this.player.setScale(64 / this.player.height);
+        this.player.setScale(85 / this.player.height);
       }
     }
 
@@ -489,14 +504,19 @@ export default class GameScene extends Phaser.Scene {
       this.spawnPlatform();
     }
 
-    const cameraBottom = this.cameras.main.scrollY + this.scale.height;
+    const cameraBottom = this.cameras.main.scrollY + this.cameras.main.height;
 
-    // Remove clouds far below camera
+    // Remove clouds far below camera and handle edge bouncing
     [this.cloudsNormal, this.cloudsBouncy, this.cloudsFragile].forEach((group) => {
       group.getChildren().forEach((p) => {
         const sprite = p as Phaser.Physics.Arcade.Sprite;
         if (sprite.y > cameraBottom + 200) {
           sprite.destroy();
+        } else {
+          // Reverse drift direction at screen edges
+          if (sprite.x < 30 || sprite.x > GAME_WIDTH - 30) {
+            sprite.setVelocityX(-sprite.body!.velocity.x);
+          }
         }
       });
     });

@@ -93,10 +93,10 @@ export default class GameScene extends Phaser.Scene {
     this.cloudsNormal = this.physics.add.staticGroup();
     this.cloudsBouncy = this.physics.add.staticGroup();
     this.cloudsFragile = this.physics.add.staticGroup();
-    this.loves = this.physics.add.group();
-    this.collectables = this.physics.add.group();
-    this.enemies = this.physics.add.group();
-    this.candles = this.physics.add.group();
+    this.loves = this.physics.add.group({ allowGravity: false });
+    this.collectables = this.physics.add.group({ allowGravity: false });
+    this.enemies = this.physics.add.group({ allowGravity: false });
+    this.candles = this.physics.add.group({ allowGravity: false });
 
     // Generate initial platforms
     this.nextPlatformY = height - 80;
@@ -288,9 +288,8 @@ export default class GameScene extends Phaser.Scene {
       this.player.y - 30,
       "love"
     ) as Phaser.Physics.Arcade.Sprite;
-    love.setScale(32 / Math.max(love.width, love.height));
+    love.setDisplaySize(28, 28);
     love.setVelocityY(LOVE_SPEED);
-    love.setGravityY(-GRAVITY); // neutralise gravity so projectile flies straight
     love.setDepth(4);
     this.shootCooldownMs = 400;
   }
@@ -426,7 +425,6 @@ export default class GameScene extends Phaser.Scene {
       "base-sphere"
     ) as Phaser.Physics.Arcade.Sprite;
     sphere.setDisplaySize(36, 36);
-    sphere.setGravityY(-GRAVITY); // float in place
     sphere.setDepth(3);
   }
 
@@ -435,7 +433,6 @@ export default class GameScene extends Phaser.Scene {
     bear.setDisplaySize(52, 52);
     bear.setBodySize(34, 40);
     bear.setOffset(9, 6);
-    bear.setGravityY(-GRAVITY);
     bear.setDepth(3);
 
     // Patrol bounds — stay on top of their platform
@@ -471,7 +468,6 @@ export default class GameScene extends Phaser.Scene {
     const candle = this.candles.create(x, y, "love") as Phaser.Physics.Arcade.Sprite;
     candle.setDisplaySize(18, 28);
     candle.setTint(0xff2222);
-    candle.setGravityY(-GRAVITY);
     candle.setVelocityY(CANDLE_SPEED);
     candle.setDepth(4);
   }

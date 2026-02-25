@@ -1,22 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
+import { useFarcaster } from "./FarcasterProvider";
 
 interface LeaderboardEntry {
   rank: number;
-  name: string;
+  fid: number;
+  username: string;
+  displayName: string;
+  pfpUrl: string;
   score: number;
-  avatar: string;
 }
-
-const MOCK_LEADERBOARD: LeaderboardEntry[] = [
-  { rank: 1, name: "vitalik.eth", score: 9842, avatar: "🧙" },
-  { rank: 2, name: "jessepollak", score: 8201, avatar: "🦊" },
-  { rank: 3, name: "dwr.eth", score: 7654, avatar: "🐱" },
-  { rank: 4, name: "jayme", score: 6400, avatar: "🚀" },
-  { rank: 5, name: "mioku50", score: 5120, avatar: "🐱" },
-];
 
 interface Props {
   score: number;
@@ -24,16 +19,44 @@ interface Props {
 }
 
 export default function GameOverlay({ score, onRestart }: Props) {
+  const { user, composeCast } = useFarcaster();
   const [shared, setShared] = useState(false);
   const [revived, setRevived] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
 
-  const handleShare = () => {
-    // Mock Farcaster Frame v2 SDK share
+  // Submit score and fetch leaderboard on mount
+  useEffect(() => {
+    // Submit score
+    if (user) {
+      fetch("/api/score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fid: user.fid,
+          username: user.username,
+          displayName: user.displayName,
+          pfpUrl: user.pfpUrl,
+          score,
+        }),
+      }).catch(() => {});
+    }
+
+    // Fetch leaderboard
+    fetch("/api/score")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.leaderboard) setLeaderboard(data.leaderboard);
+      })
+      .catch(() => {});
+  }, [score, user]);
+
+  const handleShare = useCallback(async () => {
+    const appUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const text = `🐱 I scored ${score.toLocaleString()} in Base Kitty Jump! Can you beat me?\n\n${appUrl}`;
+    await composeCast(text);
     setShared(true);
-    setTimeout(() => {
-      setRevived(true);
-    }, 1200);
-  };
+    setTimeout(() => setRevived(true), 1200);
+  }, [score, composeCast]);
 
   if (revived) {
     onRestart();
@@ -82,35 +105,61 @@ export default function GameOverlay({ score, onRestart }: Props) {
         ↩ Restart Without Revive
       </button>
 
-      {/* Mock Leaderboard */}
+      {/* Leaderboard */}
       <div className="w-full max-w-xs bg-white/5 border border-white/10 rounded-2xl p-4">
         <h3 className="text-white font-bold text-center mb-3 text-sm tracking-wide uppercase">
           🏆 Leaderboard
         </h3>
         <div className="space-y-2">
-          {MOCK_LEADERBOARD.map((entry) => (
-            <div
-              key={entry.rank}
-              className="flex items-center justify-between text-sm"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-zinc-500 w-5 text-right">
-                  {entry.rank}.
+          {leaderboard.length > 0 ? (
+            leaderboard.slice(0, 10).map((entry) => (
+              <div
+                key={entry.fid}
+                className="flex items-center justify-between text-sm"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-zinc-500 w-5 text-right">
+                    {entry.rank}.
+                  </span>
+                  {entry.pfpUrl ? (
+                    <img
+                      src={entry.pfpUrl}
+                      alt=""
+                      className="w-5 h-5 rounded-full"
+                    />
+                  ) : (
+                    <span className="text-base leading-none">😺</span>
+                  )}
+                  <span className="text-white truncate max-w-[120px]">
+                    {entry.username || entry.displayName}
+                  </span>
+                </div>
+                <span className="text-purple-300 font-mono">
+                  {entry.score.toLocaleString()}
                 </span>
-                <span className="text-base leading-none">{entry.avatar}</span>
-                <span className="text-white">{entry.name}</span>
               </div>
-              <span className="text-purple-300 font-mono">
-                {entry.score.toLocaleString()}
-              </span>
-            </div>
-          ))}
+            ))
+          ) : (
+            <p className="text-zinc-500 text-xs text-center">
+              No scores yet — be the first!
+            </p>
+          )}
           {/* Player's score highlighted */}
           <div className="border-t border-white/10 pt-2 flex items-center justify-between text-sm">
             <div className="flex items-center gap-2">
               <span className="text-zinc-500 w-5 text-right">—</span>
-              <span className="text-base leading-none">😺</span>
-              <span className="text-purple-300 font-semibold">You</span>
+              {user?.pfpUrl ? (
+                <img
+                  src={user.pfpUrl}
+                  alt=""
+                  className="w-5 h-5 rounded-full"
+                />
+              ) : (
+                <span className="text-base leading-none">😺</span>
+              )}
+              <span className="text-purple-300 font-semibold">
+                {user?.username || "You"}
+              </span>
             </div>
             <span className="text-purple-300 font-mono">
               {score.toLocaleString()}

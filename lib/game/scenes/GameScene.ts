@@ -15,6 +15,9 @@ const CANDLE_INTERVAL_BASE = 2500;  // ms
 const CANDLE_INTERVAL_MIN = 1000;   // ms floor
 const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
+const PRAYER_FILL_ENEMY = 35;    // prayer points per enemy kill
+const PRAYER_FILL_COIN  = 15;    // prayer points per coin
+const PRAYER_FREEZE_MS  = 10000; // freeze duration ms
 // Cloud drift speeds per stage (min, max)
 const CLOUD_DRIFT_SPEEDS = [
   { min: 15, max: 30 },  // Stage 0: slow
@@ -52,6 +55,12 @@ export default class GameScene extends Phaser.Scene {
   private readonly DOUBLE_TAP_THRESHOLD = 300;
   private hookUsed = false;
   private platformsSpawned = 0;
+  private prayerMeter = 0;          // 0-100
+  private prayerFreezeMs = 0;       // countdown while clouds are frozen
+  private prayerBarBg!: Phaser.GameObjects.Rectangle;
+  private prayerBarFill!: Phaser.GameObjects.Rectangle;
+  private prayerHaloIcon!: Phaser.GameObjects.Text;
+  private prayerBtn!: Phaser.GameObjects.Container;
 
   constructor(onGameOver?: (score: number) => void) {
     super({ key: "GameScene" });
@@ -69,6 +78,8 @@ export default class GameScene extends Phaser.Scene {
     this.hookUsed = false;
     this.lastTapTime = 0;
     this.platformsSpawned = 0;
+    this.prayerMeter = 0;
+    this.prayerFreezeMs = 0;
   }
 
   create() {
@@ -178,19 +189,19 @@ export default class GameScene extends Phaser.Scene {
       this
     );
 
-    // Heart hits bear -> bear destroyed, +50 score
+    // Heart hits bear -> bear destroyed, +50 score + prayer fill
     this.physics.add.overlap(
       this.loves,
       this.enemies,
       (love, enemy) => {
         (love as Phaser.GameObjects.GameObject).destroy();
         const e = asSprite(enemy);
-        // Cancel candle timer before destroying
         const timer = e.getData('candleTimer') as Phaser.Time.TimerEvent | undefined;
         if (timer) timer.remove(false);
         this.spawnCollectable(e.x, e.y);
         (enemy as Phaser.GameObjects.GameObject).destroy();
         this.addScore(50);
+        this.addPrayer(PRAYER_FILL_ENEMY);
       },
       undefined,
       this
@@ -201,6 +212,7 @@ export default class GameScene extends Phaser.Scene {
       (_p, sphere) => {
         (sphere as Phaser.GameObjects.GameObject).destroy();
         this.addScore(COLLECTABLE_SCORE);
+        this.addPrayer(PRAYER_FILL_COIN);
       },
       undefined,
       this
@@ -235,6 +247,47 @@ export default class GameScene extends Phaser.Scene {
       })
       .setScrollFactor(0)
       .setDepth(20);
+
+    // ── Prayer Meter HUD ──────────────────────────────────────────────
+    const barW = 120;
+    const barH = 12;
+    const barX = width - barW - 12;
+    const barY = 18;
+
+    // Halo icon
+    this.prayerHaloIcon = this.add
+      .text(barX - 22, barY - 2, "😇", { fontSize: "18px" })
+      .setScrollFactor(0)
+      .setDepth(21);
+
+    // Background bar
+    this.prayerBarBg = this.add
+      .rectangle(barX + barW / 2, barY + barH / 2, barW, barH, 0x333333, 0.7)
+      .setScrollFactor(0)
+      .setDepth(21);
+
+    // Fill bar (starts at 0 width, aligned left)
+    this.prayerBarFill = this.add
+      .rectangle(barX, barY + barH / 2, 0, barH, 0xffd700)
+      .setScrollFactor(0)
+      .setOrigin(0, 0.5)
+      .setDepth(22);
+
+    // Activate button — hidden until meter is full
+    const btnBg = this.add
+      .rectangle(0, 0, 120, 38, 0xffd700, 0.95)
+      .setStrokeStyle(2, 0xffffff);
+    const btnText = this.add
+      .text(0, 0, "😇 Молитва!", { fontSize: "15px", color: "#222222" })
+      .setOrigin(0.5);
+    this.prayerBtn = this.add
+      .container(width / 2, height - 38, [btnBg, btnText])
+      .setScrollFactor(0)
+      .setDepth(25)
+      .setVisible(false)
+      .setSize(120, 38)
+      .setInteractive()
+      .on("pointerdown", () => this.activatePrayer());
 
     // Input
     this.input.on("pointerdown", this.onPointerDown, this);
@@ -334,7 +387,7 @@ export default class GameScene extends Phaser.Scene {
       platformDisplayWidth = 130;
       fragileChance = 0;
       enemyChance = 0.10;
-      collectableChance = 0.40;
+      collectableChance = 0.10;  // was 0.40, reduced 4x
     } else if (this.score < 1500) {
       // Stage 1: Medium
       spacingMin = 70;
@@ -342,7 +395,7 @@ export default class GameScene extends Phaser.Scene {
       platformDisplayWidth = 120;
       fragileChance = 0.12;
       enemyChance = 0.15;
-      collectableChance = 0.28;
+      collectableChance = 0.07;  // was 0.28, reduced 4x
     } else {
       // Stage 2: Hard
       spacingMin = 90;
@@ -350,7 +403,7 @@ export default class GameScene extends Phaser.Scene {
       platformDisplayWidth = 100;
       fragileChance = 0.20;
       enemyChance = 0.22;
-      collectableChance = 0.22;
+      collectableChance = 0.055; // was 0.22, reduced 4x
     }
 
     const x = rand(PLATFORM_WIDTH / 2 + 10, width - PLATFORM_WIDTH / 2 - 10);
@@ -480,6 +533,39 @@ export default class GameScene extends Phaser.Scene {
     this.checkBackgroundStage();
   }
 
+  private addPrayer(pts: number) {
+    if (this.prayerMeter >= 100) return;
+    this.prayerMeter = Math.min(100, this.prayerMeter + pts);
+    this.updatePrayerUI();
+  }
+
+  private updatePrayerUI() {
+    const barW = 120;
+    this.prayerBarFill.width = barW * (this.prayerMeter / 100);
+    if (this.prayerMeter >= 100) {
+      this.prayerBarFill.setFillStyle(0xffd700);
+      // Pulse the bar to hint the player
+      this.tweens.add({
+        targets: this.prayerBarFill,
+        alpha: { from: 1, to: 0.4 },
+        duration: 400,
+        yoyo: true,
+        repeat: -1,
+      });
+      this.prayerBtn.setVisible(true);
+    }
+  }
+
+  private activatePrayer() {
+    if (this.prayerMeter < 100) return;
+    this.prayerMeter = 0;
+    this.prayerFreezeMs = PRAYER_FREEZE_MS;
+    this.prayerBtn.setVisible(false);
+    this.tweens.killTweensOf(this.prayerBarFill);
+    this.prayerBarFill.setAlpha(1).setFillStyle(0x88ddff);
+    this.updatePrayerUI();
+  }
+
   private checkBackgroundStage() {
     const newStage =
       this.score >= STAGE2_END ? 2 : this.score >= STAGE1_END ? 1 : 0;
@@ -557,23 +643,33 @@ export default class GameScene extends Phaser.Scene {
 
     const cameraBottom = cam.scrollY + cam.height;
 
+    // Prayer freeze countdown
+    if (this.prayerFreezeMs > 0) {
+      this.prayerFreezeMs -= delta;
+      if (this.prayerFreezeMs <= 0) {
+        this.prayerFreezeMs = 0;
+        this.prayerBarFill.setFillStyle(0xffd700);
+      }
+    }
+
     // Update cloud positions with drift and handle cleanup
+    const cloudsFrozen = this.prayerFreezeMs > 0;
     [this.cloudsNormal, this.cloudsBouncy, this.cloudsFragile].forEach((group) => {
       group.getChildren().forEach((p) => {
         const sprite = p as Phaser.Physics.Arcade.Sprite;
         if (sprite.y > cameraBottom + 200) {
           sprite.destroy();
         } else {
-          // Apply drift movement to static bodies
+          // Apply drift movement to static bodies (skip when frozen)
           const driftSpeed = sprite.getData('driftSpeed') || 0;
-          if (driftSpeed !== 0) {
+          if (driftSpeed !== 0 && !cloudsFrozen) {
             sprite.x += driftSpeed * (delta / 1000);
-            
+
             // Reverse drift direction at screen edges
             if (sprite.x < 30 || sprite.x > GAME_WIDTH - 30) {
               sprite.setData('driftSpeed', -driftSpeed);
             }
-            
+
             // Refresh static body after position change
             (sprite.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
           }

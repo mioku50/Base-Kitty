@@ -62,9 +62,9 @@ export default function Leaderboard({ onBack }: Props) {
   }, [mode, fetchLeaderboard]);
 
   const tabs: { key: Mode; label: string; icon: string }[] = [
-    { key: "weekly", label: "Weekly", icon: "📅" },
-    { key: "alltime", label: "All Time", icon: "🏆" },
-    { key: "friends", label: "Friends", icon: "👥" },
+    { key: "weekly", label: "Weekly", icon: "�" },
+    { key: "alltime", label: "All Time", icon: "😺" },
+    { key: "friends", label: "Friends", icon: "�" },
   ];
 
   return (
@@ -77,7 +77,7 @@ export default function Leaderboard({ onBack }: Props) {
         >
           ← Back
         </button>
-        <h2 className="text-white font-black text-lg">🏆 Leaderboard</h2>
+        <h2 className="text-white font-black text-lg">😸 Leaderboard</h2>
         <div className="w-12" />
       </div>
 
@@ -107,7 +107,7 @@ export default function Leaderboard({ onBack }: Props) {
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
             <span className="text-4xl mb-2">
-              {mode === "friends" ? "👥" : "📭"}
+              {mode === "friends" ? "�" : "�"}
             </span>
             <p className="text-zinc-500 text-sm text-center">
               {mode === "friends"
@@ -133,7 +133,7 @@ export default function Leaderboard({ onBack }: Props) {
                 >
                   {/* Rank */}
                   <div className="w-7 text-center shrink-0">
-                    {medalEmoji ? (
+                    {medalEmoji !== null ? (
                       <span className="text-lg">{medalEmoji}</span>
                     ) : (
                       <span className="text-zinc-500 text-xs font-mono">
@@ -151,7 +151,7 @@ export default function Leaderboard({ onBack }: Props) {
                     />
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 text-sm">
-                      😺
+                      �
                     </div>
                   )}
 

@@ -38,7 +38,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         {/* Logo / kitty */}
         <div className="flex flex-col items-center mb-2">
           <span className="text-lg opacity-70">✨</span>
-          <span className="text-7xl leading-none mb-1">🐱</span>
+          <span className="text-7xl leading-none mb-1">�</span>
           <span className="text-lg opacity-70">😇</span>
         </div>
 
@@ -60,7 +60,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
               />
             ) : (
               <div className="w-10 h-10 rounded-full bg-purple-500/30 flex items-center justify-center text-xl">
-                😺
+                �
               </div>
             )}
             <div className="flex-1 min-w-0">
@@ -81,7 +81,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
             disabled={!isSDKLoaded}
             className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 mb-5 flex items-center justify-center gap-2 hover:bg-white/10 transition-colors disabled:opacity-40"
           >
-            <span className="text-lg">🟣</span>
+            <span className="text-lg">�</span>
             <span className="text-white font-semibold text-sm">
               Sign in with Farcaster
             </span>
@@ -96,7 +96,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
             background: "linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)",
           }}
         >
-          🎮 PLAY
+          😺 PLAY
         </button>
 
         {/* Leaderboard button */}
@@ -104,7 +104,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           onClick={onLeaderboard}
           className="w-full py-3 rounded-2xl font-bold text-white text-sm border border-white/15 hover:bg-white/5 transition-colors mb-4"
         >
-          🏆 Leaderboard
+          😼 Leaderboard
         </button>
 
         {/* Footer */}

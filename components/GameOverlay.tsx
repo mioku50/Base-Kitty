@@ -67,8 +67,8 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
 
   const handleShare = useCallback(async () => {
     const appUrl = typeof window !== "undefined" ? window.location.origin : "";
-    const badgeText = badges.length > 0 ? `\n${badges.slice(0, 3).map(b => `🏅 ${b}`).join(" ")}` : "";
-    const text = `🐱 I scored ${stats.score.toLocaleString()} in Base Kitty Jump!${badgeText}\n\nCan you beat me? 👇\n${appUrl}`;
+    const badgeText = badges.length > 0 ? `\n${badges.slice(0, 3).map((b: string) => `😺 ${b}`).join(" ")}` : "";
+    const text = `� I scored ${stats.score.toLocaleString()} in Base Kitty Jump!${badgeText}\n\nCan you beat me? �\n${appUrl}`;
     await composeCast(text);
     setShared(true);
     setTimeout(() => setRevived(true), 1200);
@@ -112,7 +112,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
       <div className="w-full max-w-xs grid grid-cols-3 gap-2 mb-3">
         {[
           { icon: "🐻", val: stats.enemiesKilled, label: "Bears" },
-          { icon: "💰", val: stats.coinsCollected, label: "Coins" },
+          { icon: "�", val: stats.coinsCollected, label: "Coins" },
           { icon: "😇", val: stats.prayersUsed, label: "Prayers" },
         ].map((s) => (
           <div
@@ -129,12 +129,12 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
       {/* Badges */}
       {badges.length > 0 && (
         <div className="w-full max-w-xs flex flex-wrap gap-1.5 justify-center mb-3">
-          {badges.slice(0, 4).map((badge, i) => (
+          {badges.slice(0, 4).map((badge: string, i: number) => (
             <span
               key={i}
               className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300"
             >
-              {badge.includes("Bear") ? "🐻" : badge.includes("Stage") ? "🚀" : badge.includes("Prayer") ? "😇" : badge.includes("Coin") ? "💰" : badge.includes("Legend") ? "👑" : "⭐"}{" "}
+              {badge.includes("Bear") ? "🐻" : badge.includes("Stage") ? "🚀" : badge.includes("Prayer") ? "�" : badge.includes("Coin") ? "�" : badge.includes("Legend") ? "�" : badge.includes("Master") ? "😼" : "⭐"}{" "}
               {badge}
             </span>
           ))}
@@ -162,7 +162,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
             background: "linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)",
           }}
         >
-          🔁 Share to Farcaster → Revive!
+          � Share to Farcaster → Revive!
         </button>
       ) : (
         <div className="flex items-center gap-2 text-green-400 font-bold text-base mb-2">
@@ -176,13 +176,13 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
           onClick={onRestart}
           className="flex-1 py-2.5 rounded-2xl font-bold text-white text-sm border border-white/15 hover:bg-white/5 transition-colors"
         >
-          ↩ Restart
+          🔄 Restart
         </button>
         <button
           onClick={onLeaderboard}
           className="flex-1 py-2.5 rounded-2xl font-bold text-white text-sm border border-white/15 hover:bg-white/5 transition-colors"
         >
-          🏆 Leaderboard
+          😼 Leaderboard
         </button>
       </div>
 

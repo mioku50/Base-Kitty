@@ -1,4 +1,5 @@
 import * as Phaser from "phaser";
+import type { GameStats, GameOverCallback } from "../types";
 
 const GAME_WIDTH = 400;
 const PLATFORM_HEIGHT = 12;
@@ -50,7 +51,10 @@ export default class GameScene extends Phaser.Scene {
   private pointerDownTime = 0;
   private shootCooldownMs = 0;
   private bgStage = 0;
-  private gameOverCallback?: (score: number) => void;
+  private gameOverCallback?: GameOverCallback;
+  private enemiesKilled = 0;
+  private coinsCollected = 0;
+  private prayersUsed = 0;
   private lastTapTime = 0;
   private readonly DOUBLE_TAP_THRESHOLD = 300;
   private hookUsed = false;
@@ -62,12 +66,12 @@ export default class GameScene extends Phaser.Scene {
   private prayerHaloIcon!: Phaser.GameObjects.Text;
   private prayerBtn!: Phaser.GameObjects.Container;
 
-  constructor(onGameOver?: (score: number) => void) {
+  constructor(onGameOver?: GameOverCallback) {
     super({ key: "GameScene" });
     this.gameOverCallback = onGameOver;
   }
 
-  init(data: { onGameOver?: (score: number) => void }) {
+  init(data: { onGameOver?: GameOverCallback }) {
     if (data?.onGameOver) {
       this.gameOverCallback = data.onGameOver;
     }
@@ -80,6 +84,9 @@ export default class GameScene extends Phaser.Scene {
     this.platformsSpawned = 0;
     this.prayerMeter = 0;
     this.prayerFreezeMs = 0;
+    this.enemiesKilled = 0;
+    this.coinsCollected = 0;
+    this.prayersUsed = 0;
   }
 
   create() {
@@ -200,6 +207,7 @@ export default class GameScene extends Phaser.Scene {
         if (timer) timer.remove(false);
         this.spawnCollectable(e.x, e.y);
         (enemy as Phaser.GameObjects.GameObject).destroy();
+        this.enemiesKilled++;
         this.addScore(50);
         this.addPrayer(PRAYER_FILL_ENEMY);
       },
@@ -211,6 +219,7 @@ export default class GameScene extends Phaser.Scene {
       this.collectables,
       (_p, sphere) => {
         (sphere as Phaser.GameObjects.GameObject).destroy();
+        this.coinsCollected++;
         this.addScore(COLLECTABLE_SCORE);
         this.addPrayer(PRAYER_FILL_COIN);
       },
@@ -559,6 +568,7 @@ export default class GameScene extends Phaser.Scene {
   private activatePrayer() {
     if (this.prayerMeter < 100) return;
     this.prayerMeter = 0;
+    this.prayersUsed++;
     this.prayerFreezeMs = PRAYER_FREEZE_MS;
     this.prayerBtn.setVisible(false);
     this.tweens.killTweensOf(this.prayerBarFill);
@@ -585,8 +595,16 @@ export default class GameScene extends Phaser.Scene {
 
     // Notify React layer
     if (this.gameOverCallback) {
+      const stats: GameStats = {
+        score: this.score,
+        enemiesKilled: this.enemiesKilled,
+        coinsCollected: this.coinsCollected,
+        maxStage: this.bgStage,
+        prayersUsed: this.prayersUsed,
+        platformsReached: this.platformsSpawned,
+      };
       this.time.delayedCall(600, () => {
-        this.gameOverCallback!(this.score);
+        this.gameOverCallback!(stats);
       });
     }
   }

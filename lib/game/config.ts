@@ -1,10 +1,11 @@
 import * as Phaser from "phaser";
 import BootScene from "./scenes/BootScene";
 import GameScene from "./scenes/GameScene";
+import type { GameOverCallback } from "./types";
 
 export function createGameConfig(
   parent: HTMLElement,
-  onGameOver: (score: number) => void
+  onGameOver: GameOverCallback
 ): Phaser.Types.Core.GameConfig {
   return {
     type: Phaser.AUTO,

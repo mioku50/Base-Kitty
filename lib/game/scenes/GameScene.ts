@@ -1,5 +1,6 @@
 import * as Phaser from "phaser";
-import type { GameStats, GameOverCallback } from "../types";
+import type { GameStats, GameOverCallback, SocialFriend } from "../types";
+import { GAME_EVENTS } from "../types";
 
 const GAME_WIDTH = 400;
 const PLATFORM_HEIGHT = 12;
@@ -65,15 +66,25 @@ export default class GameScene extends Phaser.Scene {
   private prayerBarFill!: Phaser.GameObjects.Rectangle;
   private prayerHaloIcon!: Phaser.GameObjects.Text;
   private prayerBtn!: Phaser.GameObjects.Container;
+  private pauseBtn!: Phaser.GameObjects.Container;
+  private isPaused = false;
+  private cloudsSocial!: Phaser.Physics.Arcade.StaticGroup;
+  private socialFriends: SocialFriend[] = [];
+  private boostPopupText?: Phaser.GameObjects.Text;
+  private soundEnabled = true;
 
-  constructor(onGameOver?: GameOverCallback) {
+  constructor(onGameOver?: GameOverCallback, socialFriends?: SocialFriend[]) {
     super({ key: "GameScene" });
     this.gameOverCallback = onGameOver;
+    this.socialFriends = socialFriends || [];
   }
 
-  init(data: { onGameOver?: GameOverCallback }) {
+  init(data: { onGameOver?: GameOverCallback; socialFriends?: SocialFriend[] }) {
     if (data?.onGameOver) {
       this.gameOverCallback = data.onGameOver;
+    }
+    if (data?.socialFriends) {
+      this.socialFriends = data.socialFriends;
     }
     this.score = 0;
     this.isGameOver = false;
@@ -87,6 +98,7 @@ export default class GameScene extends Phaser.Scene {
     this.enemiesKilled = 0;
     this.coinsCollected = 0;
     this.prayersUsed = 0;
+    this.isPaused = false;
   }
 
   create() {
@@ -111,10 +123,20 @@ export default class GameScene extends Phaser.Scene {
     this.cloudsNormal = this.physics.add.staticGroup();
     this.cloudsBouncy = this.physics.add.staticGroup();
     this.cloudsFragile = this.physics.add.staticGroup();
+    this.cloudsSocial  = this.physics.add.staticGroup();
     this.loves = this.physics.add.group({ allowGravity: false });
     this.collectables = this.physics.add.group({ allowGravity: false });
     this.enemies = this.physics.add.group({ allowGravity: false });
     this.candles = this.physics.add.group({ allowGravity: false });
+
+    // Pre-load friend avatars as textures
+    this.socialFriends.forEach((f) => {
+      const key = `avatar-${f.fid}`;
+      if (!this.textures.exists(key)) {
+        this.load.image(key, f.pfpUrl);
+      }
+    });
+    this.load.start();
 
     // Generate initial platforms
     this.nextPlatformY = height - 80;
@@ -298,6 +320,36 @@ export default class GameScene extends Phaser.Scene {
       .setInteractive()
       .on("pointerdown", () => this.activatePrayer());
 
+    // Social cloud collider — super-boost + popup
+    this.physics.add.collider(
+      this.player,
+      this.cloudsSocial,
+      (p, plat) => {
+        const sprite = plat as Phaser.Physics.Arcade.Sprite;
+        const username = sprite.getData('username') as string | undefined;
+        (p as Phaser.Physics.Arcade.Sprite).setVelocityY(BOOST_BOUNCE * 1.15);
+        this.showBoostPopup(username || 'friend');
+      },
+      (p) => (p as Phaser.Physics.Arcade.Sprite).body!.velocity.y >= 0,
+      this
+    );
+
+    // ── Pause button HUD ────────────────────────────────────────────
+    const pauseBg = this.add
+      .rectangle(0, 0, 36, 36, 0x000000, 0.45)
+      .setStrokeStyle(1.5, 0xffffff, 0.4);
+    pauseBg.setInteractive(new Phaser.Geom.Rectangle(-18, -18, 36, 36), Phaser.Geom.Rectangle.Contains);
+    const pauseIcon = this.add
+      .text(0, 0, '⏸', { fontSize: '18px' })
+      .setOrigin(0.5);
+    this.pauseBtn = this.add
+      .container(width - 24, 24, [pauseBg, pauseIcon])
+      .setScrollFactor(0)
+      .setDepth(30)
+      .setSize(36, 36)
+      .setInteractive()
+      .on('pointerdown', () => this.togglePause());
+
     // Input
     this.input.on("pointerdown", this.onPointerDown, this);
     this.input.on("pointermove", this.onPointerMove, this);
@@ -473,7 +525,11 @@ export default class GameScene extends Phaser.Scene {
 
     // Spawn enemy or collectable on normal platforms
     this.platformsSpawned++;
-    if (platformKey === "cloud-normal" && Math.random() < enemyChance && this.platformsSpawned > 5) {
+
+    // ~8% chance of a social cloud (friend avatar boost cloud)
+    if (this.socialFriends.length > 0 && this.platformsSpawned > 8 && Math.random() < 0.08) {
+      this.spawnSocialCloud(x, y - spacing / 2);
+    } else if (platformKey === "cloud-normal" && Math.random() < enemyChance && this.platformsSpawned > 5) {
       this.spawnEnemy(x, y, dw);
     } else if (platformKey === "cloud-normal" && Math.random() < collectableChance) {
       this.spawnCollectable(x, y - 20);
@@ -585,6 +641,102 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  // ─── Pause ──────────────────────────────────────────────────────────────
+
+  togglePause() {
+    if (this.isGameOver) return;
+    if (this.isPaused) {
+      this.resumeGame();
+    } else {
+      this.pauseGame();
+    }
+  }
+
+  pauseGame() {
+    if (this.isGameOver || this.isPaused) return;
+    this.isPaused = true;
+    this.physics.pause();
+    this.time.paused = true;
+    // Update icon to play symbol
+    const icon = (this.pauseBtn.list[1] as Phaser.GameObjects.Text);
+    icon.setText('▶');
+    // Emit to React layer
+    this.game.events.emit(GAME_EVENTS.PAUSE);
+  }
+
+  resumeGame() {
+    if (!this.isPaused) return;
+    this.isPaused = false;
+    this.physics.resume();
+    this.time.paused = false;
+    const icon = (this.pauseBtn.list[1] as Phaser.GameObjects.Text);
+    icon.setText('⏸');
+    this.game.events.emit(GAME_EVENTS.RESUME);
+  }
+
+  // ─── Social Cloud ────────────────────────────────────────────────────────
+
+  private spawnSocialCloud(x: number, y: number) {
+    if (this.socialFriends.length === 0) return;
+    const friend = Phaser.Math.RND.pick(this.socialFriends) as SocialFriend;
+    const avatarKey = `avatar-${friend.fid}`;
+    const texKey = this.textures.exists(avatarKey) ? avatarKey : 'cloud-bouncy';
+
+    const plat = this.cloudsSocial.create(x, y, texKey) as Phaser.Physics.Arcade.Sprite;
+    const dw = 110;
+    const dh = 50;
+    plat.setDisplaySize(dw, dh);
+    plat.setCircle(Math.min(plat.width, plat.height) / 2);
+    // Use avatar as circle if loaded, otherwise fall back to rect hitbox
+    plat.setSize(dw * 0.75, 10);
+    plat.setOffset(dw * 0.125, 4);
+    plat.refreshBody();
+    plat.setDepth(2);
+    plat.setData('username', friend.username);
+    plat.setData('driftSpeed', Phaser.Math.Between(-25, 25));
+
+    // Draw avatar label below the cloud
+    const label = this.add
+      .text(x, y + 30, `@${friend.username}`, {
+        fontSize: '10px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(3)
+      .setScrollFactor(1);
+    plat.setData('label', label);
+  }
+
+  private showBoostPopup(username: string) {
+    if (this.boostPopupText) {
+      this.boostPopupText.destroy();
+    }
+    const camY = this.cameras.main.scrollY;
+    this.boostPopupText = this.add
+      .text(GAME_WIDTH / 2, camY + 80, `😺 Boosted by @${username}!`, {
+        fontSize: '16px',
+        fontStyle: 'bold',
+        color: '#ffe066',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5)
+      .setDepth(35)
+      .setScrollFactor(0);
+    this.tweens.add({
+      targets: this.boostPopupText,
+      alpha: { from: 1, to: 0 },
+      y: '-=30',
+      duration: 2200,
+      ease: 'Power2.easeOut',
+      onComplete: () => { this.boostPopupText?.destroy(); this.boostPopupText = undefined; },
+    });
+    // Emit to React layer too
+    this.game.events.emit(GAME_EVENTS.BOOST_POPUP, { username });
+  }
+
   // ─── Game Over ────────────────────────────────────────────────────────────
 
   private triggerGameOver() {
@@ -612,7 +764,7 @@ export default class GameScene extends Phaser.Scene {
   // ─── Update loop ──────────────────────────────────────────────────────────
 
   update(_time: number, delta: number) {
-    if (this.isGameOver) return;
+    if (this.isGameOver || this.isPaused) return;
 
     // Smooth horizontal movement following pointer
     const lerpFactor = 0.12;
@@ -733,6 +885,26 @@ export default class GameScene extends Phaser.Scene {
       const candle = c as Phaser.Physics.Arcade.Sprite;
       if (candle.y > cameraBottom + 100 || candle.y < cameraTop - 100) {
         candle.destroy();
+      }
+    });
+
+    // Update & cleanup social clouds
+    this.cloudsSocial.getChildren().forEach((p) => {
+      const sprite = p as Phaser.Physics.Arcade.Sprite;
+      const label = sprite.getData('label') as Phaser.GameObjects.Text | undefined;
+      if (sprite.y > cameraBottom + 200) {
+        label?.destroy();
+        sprite.destroy();
+        return;
+      }
+      const driftSpeed = sprite.getData('driftSpeed') || 0;
+      if (driftSpeed !== 0 && !cloudsFrozen) {
+        sprite.x += driftSpeed * (delta / 1000);
+        if (label) label.x = sprite.x;
+        if (sprite.x < 30 || sprite.x > GAME_WIDTH - 30) {
+          sprite.setData('driftSpeed', -driftSpeed);
+        }
+        (sprite.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
       }
     });
 

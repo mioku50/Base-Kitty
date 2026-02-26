@@ -1,11 +1,12 @@
 import * as Phaser from "phaser";
 import BootScene from "./scenes/BootScene";
 import GameScene from "./scenes/GameScene";
-import type { GameOverCallback } from "./types";
+import type { GameOverCallback, SocialFriend } from "./types";
 
 export function createGameConfig(
   parent: HTMLElement,
-  onGameOver: GameOverCallback
+  onGameOver: GameOverCallback,
+  socialFriends: SocialFriend[] = []
 ): Phaser.Types.Core.GameConfig {
   return {
     type: Phaser.AUTO,
@@ -20,7 +21,7 @@ export function createGameConfig(
         debug: false,
       },
     },
-    scene: [BootScene, new GameScene(onGameOver)],
+    scene: [BootScene, new GameScene(onGameOver, socialFriends)],
     scale: {
       mode: Phaser.Scale.FIT,
       autoCenter: Phaser.Scale.CENTER_BOTH,

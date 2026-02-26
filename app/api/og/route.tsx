@@ -59,7 +59,7 @@ export async function GET(req: NextRequest) {
             marginBottom: "8px",
           }}
         >
-          <span style={{ fontSize: "64px" }}>😇</span>
+          <span style={{ fontSize: "56px" }}>�</span>
           <span
             style={{
               fontSize: "52px",
@@ -70,6 +70,7 @@ export async function GET(req: NextRequest) {
           >
             Base Kitty Jump
           </span>
+          <span style={{ fontSize: "56px" }}>😇</span>
         </div>
 
         {/* Kitty + halo */}
@@ -82,7 +83,7 @@ export async function GET(req: NextRequest) {
           }}
         >
           <span style={{ fontSize: "28px", marginBottom: "-8px" }}>✨</span>
-          <span style={{ fontSize: "96px" }}>🐱</span>
+          <span style={{ fontSize: "96px" }}>�</span>
         </div>
 
         {/* Score */}
@@ -152,12 +153,14 @@ export async function GET(req: NextRequest) {
                     : badge.includes("Stage")
                       ? "🚀"
                       : badge.includes("Prayer")
-                        ? "😇"
+                        ? "�"
                         : badge.includes("Coin")
-                          ? "💰"
+                          ? "�"
                           : badge.includes("Legend")
-                            ? "👑"
-                            : "⭐"}
+                            ? "�"
+                            : badge.includes("Master")
+                              ? "😼"
+                              : "⭐"}
                 </span>
                 <span
                   style={{
@@ -184,7 +187,7 @@ export async function GET(req: NextRequest) {
             padding: "14px 36px",
           }}
         >
-          <span style={{ fontSize: "22px" }}>🎮</span>
+          <span style={{ fontSize: "22px" }}>😺</span>
           <span
             style={{ fontSize: "22px", fontWeight: 700, color: "white" }}
           >

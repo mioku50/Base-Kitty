@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import { useFarcaster } from "./FarcasterProvider";
+import KittyIcon from "./KittyIcon";
 
 interface Props {
   onPlay: () => void;
@@ -38,7 +40,15 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         {/* Logo / kitty */}
         <div className="flex flex-col items-center mb-2">
           <span className="text-lg opacity-70">✨</span>
-          <span className="text-7xl leading-none mb-1">�</span>
+          <div className="relative w-[120px] h-[160px] mb-1">
+            <Image
+              src="/assets/kitty-hero.png"
+              alt="Base Kitty"
+              fill
+              style={{ objectFit: "contain" }}
+              priority
+            />
+          </div>
           <span className="text-lg opacity-70">😇</span>
         </div>
 
@@ -59,8 +69,8 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                 className="w-10 h-10 rounded-full border-2 border-purple-500/50"
               />
             ) : (
-              <div className="w-10 h-10 rounded-full bg-purple-500/30 flex items-center justify-center text-xl">
-                �
+              <div className="w-10 h-10 rounded-full bg-purple-500/30 flex items-center justify-center">
+                <KittyIcon size={22} />
               </div>
             )}
             <div className="flex-1 min-w-0">
@@ -81,7 +91,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
             disabled={!isSDKLoaded}
             className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 mb-5 flex items-center justify-center gap-2 hover:bg-white/10 transition-colors disabled:opacity-40"
           >
-            <span className="text-lg">�</span>
+            <KittyIcon size={18} />
             <span className="text-white font-semibold text-sm">
               Sign in with Farcaster
             </span>

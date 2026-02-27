@@ -3,12 +3,23 @@ import { NextRequest } from "next/server";
 
 export const runtime = "edge";
 
+async function loadAsset(path: string) {
+  const res = await fetch(new URL(path, import.meta.url));
+  return res.arrayBuffer();
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const score = searchParams.get("score") || "0";
   const username = searchParams.get("username") || "Anonymous";
   const badges = (searchParams.get("badges") || "").split(",").filter(Boolean);
   const stage = Number(searchParams.get("stage") || "0");
+
+  const [kittyHero, kittyFace, coin] = await Promise.all([
+    loadAsset("../../../public/assets/kitty-hero.png"),
+    loadAsset("../../../public/assets/kitty-face.png"),
+    loadAsset("../../../public/assets/Based Energy Coin.PNG"),
+  ]);
 
   // Stage-dependent gradient
   const gradients = [
@@ -59,7 +70,12 @@ export async function GET(req: NextRequest) {
             marginBottom: "8px",
           }}
         >
-          <span style={{ fontSize: "56px" }}>�</span>
+          <img
+            src={kittyHero as unknown as string}
+            width={56}
+            height={56}
+            style={{ objectFit: "contain" }}
+          />
           <span
             style={{
               fontSize: "52px",
@@ -83,7 +99,12 @@ export async function GET(req: NextRequest) {
           }}
         >
           <span style={{ fontSize: "28px", marginBottom: "-8px" }}>✨</span>
-          <span style={{ fontSize: "96px" }}>�</span>
+          <img
+            src={kittyHero as unknown as string}
+            width={140}
+            height={180}
+            style={{ objectFit: "contain" }}
+          />
         </div>
 
         {/* Score */}
@@ -147,20 +168,30 @@ export async function GET(req: NextRequest) {
                   padding: "8px 18px",
                 }}
               >
-                <span style={{ fontSize: "20px" }}>
-                  {badge.includes("Bear")
-                    ? "🐻"
-                    : badge.includes("Stage")
-                      ? "🚀"
-                      : badge.includes("Prayer")
-                        ? "�"
-                        : badge.includes("Coin")
-                          ? "�"
-                          : badge.includes("Legend")
-                            ? "�"
-                            : badge.includes("Master")
-                              ? "😼"
-                              : "⭐"}
+                <span style={{ fontSize: "20px", display: "flex", alignItems: "center" }}>
+                  {badge.includes("Bear") ? (
+                    "🐻"
+                  ) : badge.includes("Stage") ? (
+                    "🚀"
+                  ) : badge.includes("Prayer") ? (
+                    "😇"
+                  ) : badge.includes("Coin") ? (
+                    <img
+                      src={coin as unknown as string}
+                      width={20}
+                      height={20}
+                      style={{ objectFit: "contain" }}
+                    />
+                  ) : badge.includes("Legend") || badge.includes("Master") ? (
+                    <img
+                      src={kittyFace as unknown as string}
+                      width={20}
+                      height={20}
+                      style={{ objectFit: "contain" }}
+                    />
+                  ) : (
+                    "⭐"
+                  )}
                 </span>
                 <span
                   style={{
@@ -187,10 +218,13 @@ export async function GET(req: NextRequest) {
             padding: "14px 36px",
           }}
         >
-          <span style={{ fontSize: "22px" }}>😺</span>
-          <span
-            style={{ fontSize: "22px", fontWeight: 700, color: "white" }}
-          >
+          <img
+            src={kittyFace as unknown as string}
+            width={22}
+            height={22}
+            style={{ objectFit: "contain" }}
+          />
+          <span style={{ fontSize: "22px", fontWeight: 700, color: "white" }}>
             Play in Farcaster
           </span>
         </div>

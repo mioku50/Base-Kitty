@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { useFarcaster } from "./FarcasterProvider";
+import KittyIcon from "./KittyIcon";
 
 type Mode = "weekly" | "alltime" | "friends";
 
@@ -61,10 +63,10 @@ export default function Leaderboard({ onBack }: Props) {
     fetchLeaderboard(mode);
   }, [mode, fetchLeaderboard]);
 
-  const tabs: { key: Mode; label: string; icon: string }[] = [
-    { key: "weekly", label: "Weekly", icon: "�" },
+  const tabs: { key: Mode; label: string; icon: ReactNode }[] = [
+    { key: "weekly", label: "Weekly", icon: <KittyIcon size={14} /> },
     { key: "alltime", label: "All Time", icon: "😺" },
-    { key: "friends", label: "Friends", icon: "�" },
+    { key: "friends", label: "Friends", icon: <KittyIcon size={14} /> },
   ];
 
   return (
@@ -87,13 +89,14 @@ export default function Leaderboard({ onBack }: Props) {
           <button
             key={tab.key}
             onClick={() => setMode(tab.key)}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
               mode === tab.key
                 ? "bg-purple-500/30 border border-purple-500/50 text-purple-200"
                 : "bg-white/5 border border-white/10 text-zinc-400 hover:bg-white/10"
             }`}
           >
-            {tab.icon} {tab.label}
+            <span className="inline-flex items-center justify-center">{tab.icon}</span>
+            {tab.label}
           </button>
         ))}
       </div>
@@ -106,10 +109,8 @@ export default function Leaderboard({ onBack }: Props) {
           </div>
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12">
-            <span className="text-4xl mb-2">
-              {mode === "friends" ? "�" : "�"}
-            </span>
-            <p className="text-zinc-500 text-sm text-center">
+            <KittyIcon size={36} />
+            <p className="text-zinc-500 text-sm text-center mt-2">
               {mode === "friends"
                 ? "No friends with scores yet.\nPlay & share to invite them!"
                 : "No scores yet — be the first!"}
@@ -150,8 +151,8 @@ export default function Leaderboard({ onBack }: Props) {
                       className="w-8 h-8 rounded-full shrink-0 border border-white/10"
                     />
                   ) : (
-                    <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0 text-sm">
-                      �
+                    <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center shrink-0">
+                      <KittyIcon size={16} />
                     </div>
                   )}
 

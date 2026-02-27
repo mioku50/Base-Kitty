@@ -3,12 +3,37 @@
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import { useFarcaster } from "./FarcasterProvider";
+import KittyIcon from "./KittyIcon";
 import type { GameStats } from "../lib/game/types";
 
 interface Props {
   stats: GameStats;
   onRestart: () => void;
   onLeaderboard: () => void;
+}
+
+function CoinIcon({ size = 18, className = "" }: { size?: number; className?: string }) {
+  return (
+    <Image
+      src="/assets/Based Energy Coin.PNG"
+      alt="Coin"
+      width={size}
+      height={size}
+      className={className}
+      style={{ width: size, height: size }}
+    />
+  );
+}
+
+function BadgeIcon({ badge }: { badge: string }) {
+  if (badge.includes("Bear")) return <span>🐻</span>;
+  if (badge.includes("Stage")) return <span>🚀</span>;
+  if (badge.includes("Prayer")) return <span>😇</span>;
+  if (badge.includes("Coin")) return <CoinIcon size={14} />;
+  if (badge.includes("Legend") || badge.includes("Master")) {
+    return <KittyIcon size={14} />;
+  }
+  return <span>⭐</span>;
 }
 
 export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) {
@@ -67,8 +92,11 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
 
   const handleShare = useCallback(async () => {
     const appUrl = typeof window !== "undefined" ? window.location.origin : "";
-    const badgeText = badges.length > 0 ? `\n${badges.slice(0, 3).map((b: string) => `😺 ${b}`).join(" ")}` : "";
-    const text = `� I scored ${stats.score.toLocaleString()} in Base Kitty Jump!${badgeText}\n\nCan you beat me? �\n${appUrl}`;
+    const badgeText =
+      badges.length > 0
+        ? `\n${badges.slice(0, 3).map((b: string) => `😺 ${b}`).join(" ")}`
+        : "";
+    const text = `😺 I scored ${stats.score.toLocaleString()} in Base Kitty Jump!${badgeText}\n\nCan you beat me?\n${appUrl}`;
     await composeCast(text);
     setShared(true);
     setTimeout(() => setRevived(true), 1200);
@@ -111,15 +139,15 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
       {/* Session stats */}
       <div className="w-full max-w-xs grid grid-cols-3 gap-2 mb-3">
         {[
-          { icon: "🐻", val: stats.enemiesKilled, label: "Bears" },
-          { icon: "�", val: stats.coinsCollected, label: "Coins" },
-          { icon: "😇", val: stats.prayersUsed, label: "Prayers" },
+          { icon: <span>🐻</span>, val: stats.enemiesKilled, label: "Bears" },
+          { icon: <CoinIcon size={18} />, val: stats.coinsCollected, label: "Coins" },
+          { icon: <span>😇</span>, val: stats.prayersUsed, label: "Prayers" },
         ].map((s) => (
           <div
             key={s.label}
             className="bg-white/5 border border-white/10 rounded-xl p-2 text-center"
           >
-            <span className="text-lg">{s.icon}</span>
+            <span className="text-lg inline-flex items-center justify-center">{s.icon}</span>
             <p className="text-white font-bold text-sm">{s.val}</p>
             <p className="text-zinc-500 text-[10px]">{s.label}</p>
           </div>
@@ -132,9 +160,9 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
           {badges.slice(0, 4).map((badge: string, i: number) => (
             <span
               key={i}
-              className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300"
+              className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-purple-500/15 border border-purple-500/30 text-purple-300 inline-flex items-center gap-1"
             >
-              {badge.includes("Bear") ? "🐻" : badge.includes("Stage") ? "🚀" : badge.includes("Prayer") ? "�" : badge.includes("Coin") ? "�" : badge.includes("Legend") ? "�" : badge.includes("Master") ? "😼" : "⭐"}{" "}
+              <BadgeIcon badge={badge} />
               {badge}
             </span>
           ))}
@@ -162,7 +190,10 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
             background: "linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)",
           }}
         >
-          � Share to Farcaster → Revive!
+          <span className="inline-flex items-center justify-center gap-2">
+            <KittyIcon size={18} />
+            Share to Farcaster → Revive!
+          </span>
         </button>
       ) : (
         <div className="flex items-center gap-2 text-green-400 font-bold text-base mb-2">

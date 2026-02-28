@@ -12,7 +12,7 @@ import { SendEth } from "../wallet/SendEth";
 import { SignSolanaMessage } from "../wallet/SignSolanaMessage";
 import { SendSolana } from "../wallet/SendSolana";
 import { USE_WALLET, APP_NAME } from "../../../lib/constants";
-import { useMiniApp } from "@neynar/react";
+import { useMiniApp } from "~/components/providers/MiniAppProvider";
 
 /**
  * WalletTab component manages wallet-related UI for both EVM and Solana chains.

@@ -2,6 +2,9 @@
   "name": "base-kitty-app",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -9,6 +12,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@farcaster/miniapp-node": "^0.1.13",
     "@farcaster/miniapp-sdk": "^0.2.3",
     "@farcaster/quick-auth": "^0.0.8",
     "@neynar/nodejs-sdk": "^3.137.0",
@@ -25,6 +29,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "tailwindcss": "^4",
+    "tailwindcss-animate": "^1.0.7",
     "typescript": "^5"
   }
 }

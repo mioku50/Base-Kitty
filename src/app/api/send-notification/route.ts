@@ -1,4 +1,4 @@
-import { notificationDetailsSchema } from "@farcaster/miniapp-sdk";
+import { notificationDetailsSchema, type MiniAppNotificationDetails } from "@farcaster/miniapp-sdk";
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { setUserNotificationDetails } from "~/lib/kv";
@@ -29,7 +29,7 @@ export async function POST(request: NextRequest) {
   if (!neynarEnabled) {
     await setUserNotificationDetails(
       Number(requestBody.data.fid),
-      requestBody.data.notificationDetails
+      requestBody.data.notificationDetails as MiniAppNotificationDetails
     );
   }
 

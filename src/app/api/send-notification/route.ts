@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
 
   if (requestBody.success === false) {
     return Response.json(
-      { success: false, errors: requestBody.error.errors },
+      { success: false, errors: requestBody.error.issues },
       { status: 400 }
     );
   }

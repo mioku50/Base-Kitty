@@ -1,5 +1,6 @@
 export async function GET() {
-  const URL = process.env.NEXT_PUBLIC_URL || "https://base-kitty.vercel.app";
+  const rawUrl = process.env.NEXT_PUBLIC_URL?.trim() || "https://base-kitty.vercel.app";
+  const URL = rawUrl.replace(/\/+$/, "");
 
   return Response.json({
     accountAssociation: {

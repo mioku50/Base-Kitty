@@ -2,7 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 import FarcasterProvider from "../components/FarcasterProvider";
 
-const APP_URL = process.env.NEXT_PUBLIC_URL || "https://base-kitty.vercel.app";
+const DEFAULT_APP_URL = "https://base-kitty.vercel.app";
+
+function getAppUrl() {
+  const raw = process.env.NEXT_PUBLIC_URL?.trim() || DEFAULT_APP_URL;
+  return raw.replace(/\/+$/, "");
+}
+
+const APP_URL = getAppUrl();
 
 export const metadata: Metadata = {
   title: "Base Kitty",

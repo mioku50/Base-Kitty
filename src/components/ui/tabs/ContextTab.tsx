@@ -1,6 +1,6 @@
 "use client";
 
-import { useMiniApp } from "@neynar/react";
+import { useMiniApp } from "~/components/providers/MiniAppProvider";
 
 /**
  * ContextTab component displays the current mini app context in JSON format.

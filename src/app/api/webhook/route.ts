@@ -1,8 +1,3 @@
-import {
-  ParseWebhookEvent,
-  parseWebhookEvent,
-  verifyAppKeyWithNeynar,
-} from "@farcaster/miniapp-node";
 import { NextRequest } from "next/server";
 import { APP_NAME } from "~/lib/constants";
 import {
@@ -10,6 +5,79 @@ import {
   setUserNotificationDetails,
 } from "~/lib/kv";
 import { sendMiniAppNotification } from "~/lib/notifs";
+
+type NotificationDetails = {
+  url: string;
+  token: string;
+};
+
+type WebhookEvent =
+  | { event: "miniapp_added"; notificationDetails?: NotificationDetails }
+  | { event: "miniapp_removed" }
+  | { event: "notifications_enabled"; notificationDetails: NotificationDetails }
+  | { event: "notifications_disabled" };
+
+type WebhookPayload = {
+  fid: number;
+  event: WebhookEvent;
+};
+
+function isNotificationDetails(value: unknown): value is NotificationDetails {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const details = value as Record<string, unknown>;
+  return typeof details.url === "string" && typeof details.token === "string";
+}
+
+function parseWebhookPayload(input: unknown): WebhookPayload | null {
+  if (!input || typeof input !== "object") {
+    return null;
+  }
+
+  const payload = input as Record<string, unknown>;
+  if (typeof payload.fid !== "number" || !payload.event || typeof payload.event !== "object") {
+    return null;
+  }
+
+  const event = payload.event as Record<string, unknown>;
+
+  switch (event.event) {
+    case "miniapp_added": {
+      const details = event.notificationDetails;
+      if (details === undefined) {
+        return { fid: payload.fid, event: { event: "miniapp_added" } };
+      }
+
+      if (!isNotificationDetails(details)) {
+        return null;
+      }
+
+      return {
+        fid: payload.fid,
+        event: { event: "miniapp_added", notificationDetails: details },
+      };
+    }
+    case "miniapp_removed":
+      return { fid: payload.fid, event: { event: "miniapp_removed" } };
+    case "notifications_enabled": {
+      const details = event.notificationDetails;
+      if (!isNotificationDetails(details)) {
+        return null;
+      }
+
+      return {
+        fid: payload.fid,
+        event: { event: "notifications_enabled", notificationDetails: details },
+      };
+    }
+    case "notifications_disabled":
+      return { fid: payload.fid, event: { event: "notifications_disabled" } };
+    default:
+      return null;
+  }
+}
 
 export async function POST(request: NextRequest) {
   // If Neynar is enabled, we don't need to handle webhooks here
@@ -20,38 +88,17 @@ export async function POST(request: NextRequest) {
   }
 
   const requestJson = await request.json();
+  const parsed = parseWebhookPayload(requestJson);
 
-  let data;
-  try {
-    data = await parseWebhookEvent(requestJson, verifyAppKeyWithNeynar);
-  } catch (e: unknown) {
-    const error = e as ParseWebhookEvent.ErrorType;
-
-    switch (error.name) {
-      case "VerifyJsonFarcasterSignature.InvalidDataError":
-      case "VerifyJsonFarcasterSignature.InvalidEventDataError":
-        // The request data is invalid
-        return Response.json(
-          { success: false, error: error.message },
-          { status: 400 }
-        );
-      case "VerifyJsonFarcasterSignature.InvalidAppKeyError":
-        // The app key is invalid
-        return Response.json(
-          { success: false, error: error.message },
-          { status: 401 }
-        );
-      case "VerifyJsonFarcasterSignature.VerifyAppKeyError":
-        // Internal error verifying the app key (caller may want to try again)
-        return Response.json(
-          { success: false, error: error.message },
-          { status: 500 }
-        );
-    }
+  if (!parsed) {
+    console.error("Invalid webhook payload");
+    return Response.json(
+      { success: false, error: "Invalid webhook payload" },
+      { status: 400 }
+    );
   }
 
-  const fid = data.fid;
-  const event = data.event;
+  const { fid, event } = parsed;
 
   // Only handle notifications if Neynar is not enabled
   // When Neynar is enabled, notifications are handled through their webhook

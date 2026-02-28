@@ -3,7 +3,11 @@ import dynamic from "next/dynamic";
 import { sdk } from '@farcaster/miniapp-sdk';
 
 const FarcasterSolanaProvider = dynamic(
-  () => import('@farcaster/mini-app-solana').then(mod => mod.FarcasterSolanaProvider),
+  async () => {
+    const dynamicImport = new Function('m', 'return import(m)') as (m: string) => Promise<{ FarcasterSolanaProvider: React.ComponentType<{ endpoint: string; children: React.ReactNode }> }>;
+    const mod = await dynamicImport('@farcaster/mini-app-solana');
+    return mod.FarcasterSolanaProvider;
+  },
   { ssr: false }
 );
 

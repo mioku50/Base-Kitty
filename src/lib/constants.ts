@@ -28,7 +28,7 @@ export const APP_NAME: string = 'Nimbus Ascent';
  * A brief description of the mini app's functionality.
  * Used in app store listings and metadata.
  */
-export const APP_DESCRIPTION: string = 'Play as a nimbus cat, jump through the clouds, destroy the bears of the market and score points!';
+export const APP_DESCRIPTION: string = 'Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!';
 
 /**
  * The primary category for the mini app.
@@ -40,7 +40,7 @@ export const APP_PRIMARY_CATEGORY: string = 'games';
  * Tags associated with the mini app.
  * Used for search and discovery in app stores.
  */
-export const APP_TAGS: string[] = ['№nimb', '#nimbus', '#basekitty', '#cloud'];
+export const APP_TAGS: string[] = ['#nimb', '#nimbus', '#basekitty', '#cloud'];
 
 // --- Asset URLs ---
 /**
@@ -53,7 +53,7 @@ export const APP_ICON_URL: string = `${APP_URL}/icon.png`;
  * URL for the app's Open Graph image.
  * Used for social media sharing and previews.
  */
-export const APP_OG_IMAGE_URL: string = `${APP_URL}/api/opengraph-image`;
+export const APP_OG_IMAGE_URL: string = `${APP_URL}/api/og`;
 
 /**
  * URL for the app's splash screen image.
@@ -80,7 +80,7 @@ export const APP_ACCOUNT_ASSOCIATION: AccountAssociation | undefined =
  * Text displayed on the main action button.
  * Used for the primary call-to-action in the mini app.
  */
-export const APP_BUTTON_TEXT: string = ' Launch Nimbus Ascent';
+export const APP_BUTTON_TEXT: string = 'Play Nimbus Ascent';
 
 // --- Integration Configuration ---
 /**

@@ -16,7 +16,7 @@ const CANDLE_INTERVAL_BASE = 2500;  // ms
 const CANDLE_INTERVAL_MIN = 1000;   // ms floor
 const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
-const ENEMY_SPAWN_MULTIPLIER = 1 / 3; // reduce enemy density ~3x
+const ENEMY_SPAWN_MULTIPLIER = 1 / 6; // reduce enemy density ~6x from original (~2x from current)
 const PRAYER_FILL_ENEMY = 2;     // prayer points per enemy kill
 const PRAYER_FILL_COIN  = 1;     // prayer points per coin
 const PRAYER_FREEZE_MS  = 10000; // freeze duration ms
@@ -72,6 +72,31 @@ export default class GameScene extends Phaser.Scene {
   private socialFriends: SocialFriend[] = [];
   private boostPopupText?: Phaser.GameObjects.Text;
   private soundEnabled = true;
+  private onScaleResize = (gameSize: { width: number; height: number }) => {
+    const width = gameSize.width;
+    const height = gameSize.height;
+
+    this.bgImages.forEach((img) => {
+      img.setPosition(width / 2, height / 2);
+      img.setDisplaySize(width, height);
+    });
+
+    this.physics.world.setBounds(0, -99999, width, 100000 + height);
+    this.cameras.main.setBounds(0, -99999, width, 100000 + height);
+    this.cameras.main.setFollowOffset(0, height * 0.3);
+
+    const barW = 120;
+    const barH = 12;
+    const barX = width - barW - 12;
+    const barY = 18;
+
+    this.scoreText.setPosition(12, 12);
+    this.prayerHaloIcon.setPosition(barX - 22, barY - 2);
+    this.prayerBarBg.setPosition(barX + barW / 2, barY + barH / 2);
+    this.prayerBarFill.setPosition(barX, barY + barH / 2);
+    this.prayerBtn.setPosition(width / 2, height - 38);
+    this.pauseBtn.setPosition(width - 24, 24);
+  };
 
   constructor(onGameOver?: GameOverCallback, socialFriends?: SocialFriend[]) {
     super({ key: "GameScene" });
@@ -357,6 +382,11 @@ export default class GameScene extends Phaser.Scene {
 
     this.targetX = width / 2;
     this.lastPointerX = width / 2;
+
+    this.scale.on("resize", this.onScaleResize);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off("resize", this.onScaleResize);
+    });
   }
 
   // ─── Input handlers ──────────────────────────────────────────────────────────

@@ -3,23 +3,16 @@ import { NextRequest } from "next/server";
 
 export const runtime = "edge";
 
-async function loadAsset(path: string) {
-  const res = await fetch(new URL(path, import.meta.url));
-  return res.arrayBuffer();
-}
-
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const score = searchParams.get("score") || "0";
   const username = searchParams.get("username") || "Anonymous";
   const badges = (searchParams.get("badges") || "").split(",").filter(Boolean);
   const stage = Number(searchParams.get("stage") || "0");
-
-  const [kittyHero, kittyFace, coin] = await Promise.all([
-    loadAsset("../../../public/assets/kitty-hero.png"),
-    loadAsset("../../../public/assets/kitty-face.png"),
-    loadAsset("../../../public/assets/Based Energy Coin.PNG"),
-  ]);
+  const assetBase = req.nextUrl.origin;
+  const kittyHero = new URL("/assets/kitty-hero.png", assetBase).toString();
+  const kittyFace = new URL("/assets/kitty-face.png", assetBase).toString();
+  const coin = new URL("/assets/Based Energy Coin.PNG", assetBase).toString();
 
   // Stage-dependent gradient
   const gradients = [
@@ -71,7 +64,7 @@ export async function GET(req: NextRequest) {
           }}
         >
           <img
-            src={kittyHero as unknown as string}
+            src={kittyHero}
             width={56}
             height={56}
             style={{ objectFit: "contain" }}
@@ -100,7 +93,7 @@ export async function GET(req: NextRequest) {
         >
           <span style={{ fontSize: "28px", marginBottom: "-8px" }}>✨</span>
           <img
-            src={kittyHero as unknown as string}
+            src={kittyHero}
             width={140}
             height={180}
             style={{ objectFit: "contain" }}
@@ -177,14 +170,14 @@ export async function GET(req: NextRequest) {
                     "😇"
                   ) : badge.includes("Coin") ? (
                     <img
-                      src={coin as unknown as string}
+                      src={coin}
                       width={20}
                       height={20}
                       style={{ objectFit: "contain" }}
                     />
                   ) : badge.includes("Legend") || badge.includes("Master") ? (
                     <img
-                      src={kittyFace as unknown as string}
+                      src={kittyFace}
                       width={20}
                       height={20}
                       style={{ objectFit: "contain" }}
@@ -219,7 +212,7 @@ export async function GET(req: NextRequest) {
           }}
         >
           <img
-            src={kittyFace as unknown as string}
+            src={kittyFace}
             width={22}
             height={22}
             style={{ objectFit: "contain" }}

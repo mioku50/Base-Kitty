@@ -2,8 +2,8 @@ import GameLoader from "../components/GameLoader";
 
 export default function Home() {
   return (
-    <main className="flex items-center justify-center w-full h-[100svh] bg-black overflow-hidden">
-      <div className="relative w-full max-w-[400px] aspect-[400/650] max-h-[100svh]">
+    <main className="w-full h-screen h-[100dvh] bg-black overflow-hidden">
+      <div className="relative mx-auto w-full max-w-[400px] h-full">
         <GameLoader />
       </div>
     </main>

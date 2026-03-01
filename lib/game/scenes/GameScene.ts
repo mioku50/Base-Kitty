@@ -2,7 +2,6 @@ import * as Phaser from "phaser";
 import type { GameStats, GameOverCallback, SocialFriend } from "../types";
 import { GAME_EVENTS } from "../types";
 
-const GAME_WIDTH = 400;
 const PLATFORM_HEIGHT = 12;
 const PLATFORM_WIDTH = 80;
 const PLAYER_BOUNCE = -600;
@@ -17,6 +16,7 @@ const CANDLE_INTERVAL_BASE = 2500;  // ms
 const CANDLE_INTERVAL_MIN = 1000;   // ms floor
 const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
+const ENEMY_SPAWN_MULTIPLIER = 1 / 6; // reduce enemy density ~6x from original (~2x from current)
 const PRAYER_FILL_ENEMY = 2;     // prayer points per enemy kill
 const PRAYER_FILL_COIN  = 1;     // prayer points per coin
 const PRAYER_FREEZE_MS  = 10000; // freeze duration ms
@@ -46,8 +46,8 @@ export default class GameScene extends Phaser.Scene {
   private nextPlatformY = 0;
   private bgImages: Phaser.GameObjects.Image[] = [];
   private isGameOver = false;
-  private lastPointerX = GAME_WIDTH / 2;
-  private targetX = GAME_WIDTH / 2;
+  private lastPointerX = 200;
+  private targetX = 200;
   private pointerDown = false;
   private pointerDownTime = 0;
   private shootCooldownMs = 0;
@@ -72,6 +72,31 @@ export default class GameScene extends Phaser.Scene {
   private socialFriends: SocialFriend[] = [];
   private boostPopupText?: Phaser.GameObjects.Text;
   private soundEnabled = true;
+  private onScaleResize = (gameSize: { width: number; height: number }) => {
+    const width = gameSize.width;
+    const height = gameSize.height;
+
+    this.bgImages.forEach((img) => {
+      img.setPosition(width / 2, height / 2);
+      img.setDisplaySize(width, height);
+    });
+
+    this.physics.world.setBounds(0, -99999, width, 100000 + height);
+    this.cameras.main.setBounds(0, -99999, width, 100000 + height);
+    this.cameras.main.setFollowOffset(0, height * 0.3);
+
+    const barW = 120;
+    const barH = 12;
+    const barX = width - barW - 12;
+    const barY = 18;
+
+    this.scoreText.setPosition(12, 12);
+    this.prayerHaloIcon.setPosition(barX - 22, barY - 2);
+    this.prayerBarBg.setPosition(barX + barW / 2, barY + barH / 2);
+    this.prayerBarFill.setPosition(barX, barY + barH / 2);
+    this.prayerBtn.setPosition(width / 2, height - 38);
+    this.pauseBtn.setPosition(width - 24, 24);
+  };
 
   constructor(onGameOver?: GameOverCallback, socialFriends?: SocialFriend[]) {
     super({ key: "GameScene" });
@@ -357,6 +382,11 @@ export default class GameScene extends Phaser.Scene {
 
     this.targetX = width / 2;
     this.lastPointerX = width / 2;
+
+    this.scale.on("resize", this.onScaleResize);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off("resize", this.onScaleResize);
+    });
   }
 
   // ─── Input handlers ──────────────────────────────────────────────────────────
@@ -447,7 +477,7 @@ export default class GameScene extends Phaser.Scene {
       spacingMax = 90;
       platformDisplayWidth = 130;
       fragileChance = 0;
-      enemyChance = 0.10;
+      enemyChance = 0.10 * ENEMY_SPAWN_MULTIPLIER;
       collectableChance = 0.10;  // was 0.40, reduced 4x
     } else if (this.score < 1500) {
       // Stage 1: Medium
@@ -455,7 +485,7 @@ export default class GameScene extends Phaser.Scene {
       spacingMax = 110;
       platformDisplayWidth = 120;
       fragileChance = 0.12;
-      enemyChance = 0.15;
+      enemyChance = 0.15 * ENEMY_SPAWN_MULTIPLIER;
       collectableChance = 0.07;  // was 0.28, reduced 4x
     } else {
       // Stage 2: Hard
@@ -463,7 +493,7 @@ export default class GameScene extends Phaser.Scene {
       spacingMax = 140;
       platformDisplayWidth = 100;
       fragileChance = 0.20;
-      enemyChance = 0.22;
+      enemyChance = 0.22 * ENEMY_SPAWN_MULTIPLIER;
       collectableChance = 0.055; // was 0.22, reduced 4x
     }
 
@@ -715,7 +745,7 @@ export default class GameScene extends Phaser.Scene {
     }
     const camY = this.cameras.main.scrollY;
     this.boostPopupText = this.add
-      .text(GAME_WIDTH / 2, camY + 80, `😺 Boosted by @${username}!`, {
+      .text(this.scale.width / 2, camY + 80, `😺 Boosted by @${username}!`, {
         fontSize: '16px',
         fontStyle: 'bold',
         color: '#ffe066',
@@ -765,6 +795,7 @@ export default class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     if (this.isGameOver || this.isPaused) return;
+    const viewWidth = this.scale.width;
 
     // Smooth horizontal movement following pointer
     const lerpFactor = 0.12;
@@ -773,8 +804,8 @@ export default class GameScene extends Phaser.Scene {
     this.player.x += dx * lerpFactor;
 
     // Screen wrap horizontal
-    if (this.player.x < -10) this.player.x = GAME_WIDTH + 10;
-    if (this.player.x > GAME_WIDTH + 10) this.player.x = -10;
+    if (this.player.x < -10) this.player.x = viewWidth + 10;
+    if (this.player.x > viewWidth + 10) this.player.x = -10;
 
     // Shoot cooldown
     if (this.shootCooldownMs > 0) {
@@ -836,7 +867,7 @@ export default class GameScene extends Phaser.Scene {
             sprite.x += driftSpeed * (delta / 1000);
 
             // Reverse drift direction at screen edges
-            if (sprite.x < 30 || sprite.x > GAME_WIDTH - 30) {
+            if (sprite.x < 30 || sprite.x > viewWidth - 30) {
               sprite.setData('driftSpeed', -driftSpeed);
             }
 
@@ -869,7 +900,7 @@ export default class GameScene extends Phaser.Scene {
         return;
       }
       const leftBound  = enemy.getData('leftBound') as number ?? 20;
-      const rightBound = enemy.getData('rightBound') as number ?? GAME_WIDTH - 20;
+      const rightBound = enemy.getData('rightBound') as number ?? viewWidth - 20;
       const speed      = enemy.getData('speed') as number ?? ENEMY_PATROL_SPEED;
       if (enemy.x <= leftBound) {
         enemy.setVelocityX(Math.abs(speed));
@@ -901,7 +932,7 @@ export default class GameScene extends Phaser.Scene {
       if (driftSpeed !== 0 && !cloudsFrozen) {
         sprite.x += driftSpeed * (delta / 1000);
         if (label) label.x = sprite.x;
-        if (sprite.x < 30 || sprite.x > GAME_WIDTH - 30) {
+        if (sprite.x < 30 || sprite.x > viewWidth - 30) {
           sprite.setData('driftSpeed', -driftSpeed);
         }
         (sprite.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();

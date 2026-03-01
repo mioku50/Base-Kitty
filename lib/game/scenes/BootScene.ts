@@ -18,7 +18,7 @@ export default class BootScene extends Phaser.Scene {
     const loadingText = this.make.text({
       x: width / 2,
       y: height / 2 - 50,
-      text: "Loading Base Kitty...",
+      text: "Loading Nimbus Ascent...",
       style: { font: "20px monospace", color: "#ffffff" },
     });
     loadingText.setOrigin(0.5, 0.5);

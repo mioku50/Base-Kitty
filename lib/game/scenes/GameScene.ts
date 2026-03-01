@@ -17,6 +17,7 @@ const CANDLE_INTERVAL_BASE = 2500;  // ms
 const CANDLE_INTERVAL_MIN = 1000;   // ms floor
 const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
+const ENEMY_SPAWN_MULTIPLIER = 1 / 3; // reduce enemy density ~3x
 const PRAYER_FILL_ENEMY = 2;     // prayer points per enemy kill
 const PRAYER_FILL_COIN  = 1;     // prayer points per coin
 const PRAYER_FREEZE_MS  = 10000; // freeze duration ms
@@ -447,7 +448,7 @@ export default class GameScene extends Phaser.Scene {
       spacingMax = 90;
       platformDisplayWidth = 130;
       fragileChance = 0;
-      enemyChance = 0.10;
+      enemyChance = 0.10 * ENEMY_SPAWN_MULTIPLIER;
       collectableChance = 0.10;  // was 0.40, reduced 4x
     } else if (this.score < 1500) {
       // Stage 1: Medium
@@ -455,7 +456,7 @@ export default class GameScene extends Phaser.Scene {
       spacingMax = 110;
       platformDisplayWidth = 120;
       fragileChance = 0.12;
-      enemyChance = 0.15;
+      enemyChance = 0.15 * ENEMY_SPAWN_MULTIPLIER;
       collectableChance = 0.07;  // was 0.28, reduced 4x
     } else {
       // Stage 2: Hard
@@ -463,7 +464,7 @@ export default class GameScene extends Phaser.Scene {
       spacingMax = 140;
       platformDisplayWidth = 100;
       fragileChance = 0.20;
-      enemyChance = 0.22;
+      enemyChance = 0.22 * ENEMY_SPAWN_MULTIPLIER;
       collectableChance = 0.055; // was 0.22, reduced 4x
     }
 

@@ -1,4 +1,4 @@
-# 🐱 Base Kitty Jump
+# 🐱 Nimbus Ascent
 
 Doodle Jump-style MiniApp для Farcaster. Играй за котика-нимба, прыгай по облакам, уничтожай медведей рынка и набирай очки!
 

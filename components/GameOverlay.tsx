@@ -96,7 +96,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
       badges.length > 0
         ? `\n${badges.slice(0, 3).map((b: string) => `😺 ${b}`).join(" ")}`
         : "";
-    const text = `😺 I scored ${stats.score.toLocaleString()} in Base Kitty Jump!${badgeText}\n\nCan you beat me?\n${appUrl}`;
+    const text = `😺 I scored ${stats.score.toLocaleString()} in Nimbus Ascent!${badgeText}\n\nCan you beat me?\n${appUrl}`;
     await composeCast(text);
     setShared(true);
     setTimeout(() => setRevived(true), 1200);

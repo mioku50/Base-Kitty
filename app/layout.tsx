@@ -12,13 +12,13 @@ function getAppUrl() {
 const APP_URL = getAppUrl();
 
 export const metadata: Metadata = {
-  title: "Base Kitty",
+  title: "Nimbus Ascent",
   description:
-    "Base Kitty — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
+    "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
   openGraph: {
-    title: "Base Kitty",
+    title: "Nimbus Ascent",
     description:
-      "Base Kitty — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
+      "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
     images: [`${APP_URL}/og.png`],
   },
   other: {
@@ -26,10 +26,10 @@ export const metadata: Metadata = {
       version: "next",
       imageUrl: `${APP_URL}/og.png`,
       button: {
-        title: "Play Base Kitty",
+        title: "Play Nimbus Ascent",
         action: {
           type: "launch_miniapp",
-          name: "Base Kitty Jump",
+          name: "Nimbus Ascent",
           url: APP_URL,
         },
       },

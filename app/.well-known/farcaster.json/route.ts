@@ -10,7 +10,7 @@ export async function GET() {
     },
     miniapp: {
       version: "1",
-      name: "Base Kitty Jump",
+      name: "Nimbus Ascent",
       homeUrl: URL,
       iconUrl: `${URL}/icon.png`,
       splashImageUrl: `${URL}/splash.png`,
@@ -23,7 +23,7 @@ export async function GET() {
       primaryCategory: "games",
       tags: ["base", "game", "farcaster", "jump"],
       heroImageUrl: `${URL}/og.png`,
-      ogTitle: "Base Kitty Jump",
+      ogTitle: "Nimbus Ascent",
       ogDescription:
         "Rise from Web2 to Onchain Heaven! A Doodle Jump style MiniApp for Farcaster.",
       ogImageUrl: `${URL}/og.png`,

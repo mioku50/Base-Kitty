@@ -43,7 +43,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           <div className="relative w-[120px] h-[160px] mb-1">
             <Image
               src="/assets/kitty-hero.png"
-              alt="Base Kitty"
+              alt="Nimbus Ascent"
               fill
               style={{ objectFit: "contain" }}
               priority
@@ -53,7 +53,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         </div>
 
         <h1 className="text-3xl font-black text-white text-center tracking-tight mb-1">
-          Base Kitty
+          Nimbus Ascent
         </h1>
         <p className="text-purple-300 text-sm font-medium mb-6 text-center">
           Rise from Web2 to Onchain Heaven!

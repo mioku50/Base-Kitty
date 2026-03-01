@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
               letterSpacing: "-1px",
             }}
           >
-            Base Kitty Jump
+            Nimbus Ascent
           </span>
           <span style={{ fontSize: "56px" }}>😇</span>
         </div>

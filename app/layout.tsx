@@ -19,12 +19,12 @@ export const metadata: Metadata = {
     title: "Nimbus Ascent",
     description:
       "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
-    images: [`${APP_URL}/og.png`],
+    images: [`${APP_URL}/api/og`],
   },
   other: {
     "fc:miniapp": JSON.stringify({
       version: "next",
-      imageUrl: `${APP_URL}/og.png`,
+      imageUrl: `${APP_URL}/api/og`,
       button: {
         title: "Play Nimbus Ascent",
         action: {

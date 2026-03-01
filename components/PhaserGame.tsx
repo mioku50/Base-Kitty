@@ -51,6 +51,22 @@ export default function PhaserGame({ onGameOver, onLeaderboard, onRestart, socia
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    const onResize = () => {
+      const game = gameRef.current;
+      const parent = containerRef.current;
+      if (!game || !parent) return;
+      game.scale.resize(parent.clientWidth, parent.clientHeight);
+    };
+
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
+
   const handleResume = useCallback(() => {
     getScene()?.resumeGame();
   }, [getScene]);

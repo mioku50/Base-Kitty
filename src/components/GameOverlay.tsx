@@ -92,15 +92,18 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
 
   const handleShare = useCallback(async () => {
     const appUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const shareUrl = user?.fid
+      ? `${appUrl}/share/${user.fid}?score=${stats.score}&stage=${stats.maxStage}&badges=${encodeURIComponent(badges.slice(0, 3).join(","))}`
+      : appUrl;
     const badgeText =
       badges.length > 0
         ? `\n${badges.slice(0, 3).map((b: string) => `😺 ${b}`).join(" ")}`
         : "";
-    const text = `😺 I scored ${stats.score.toLocaleString()} in Base Kitty Jump!${badgeText}\n\nCan you beat me?\n${appUrl}`;
+    const text = `😺 I scored ${stats.score.toLocaleString()} in Base Kitty Jump!${badgeText}\n\nCan you beat me? ${shareUrl}`;
     await composeCast(text);
     setShared(true);
     setTimeout(() => setRevived(true), 1200);
-  }, [stats.score, badges, composeCast]);
+  }, [stats.score, stats.maxStage, badges, composeCast, user]);
 
   if (revived) {
     onRestart();

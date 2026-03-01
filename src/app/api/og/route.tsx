@@ -3,9 +3,16 @@ import { NextRequest } from "next/server";
 
 export const runtime = "edge";
 
-async function loadAsset(path: string) {
-  const res = await fetch(new URL(path, import.meta.url));
-  return res.arrayBuffer();
+const baseUrl = process.env.NEXT_PUBLIC_URL || "https://base-kitty.vercel.app";
+
+async function loadAsset(filename: string): Promise<ArrayBuffer | null> {
+  try {
+    const res = await fetch(`${baseUrl}${filename}`);
+    if (!res.ok) return null;
+    return res.arrayBuffer();
+  } catch {
+    return null;
+  }
 }
 
 export async function GET(req: NextRequest) {
@@ -16,9 +23,9 @@ export async function GET(req: NextRequest) {
   const stage = Number(searchParams.get("stage") || "0");
 
   const [kittyHero, kittyFace, coin] = await Promise.all([
-    loadAsset("../../../../public/assets/kitty-hero.png"),
-    loadAsset("../../../../public/assets/kitty-face.png"),
-    loadAsset("../../../../public/assets/Based Energy Coin.PNG"),
+    loadAsset("/assets/kitty-hero.png"),
+    loadAsset("/assets/kitty-face.png"),
+    loadAsset("/assets/Based Energy Coin.PNG"),
   ]);
 
   // Stage-dependent gradient
@@ -70,12 +77,14 @@ export async function GET(req: NextRequest) {
             marginBottom: "8px",
           }}
         >
-          <img
-            src={kittyHero as unknown as string}
-            width={56}
-            height={56}
-            style={{ objectFit: "contain" }}
-          />
+          {kittyHero && (
+            <img
+              src={kittyHero as unknown as string}
+              width={56}
+              height={56}
+              style={{ objectFit: "contain" }}
+            />
+          )}
           <span
             style={{
               fontSize: "52px",
@@ -99,12 +108,14 @@ export async function GET(req: NextRequest) {
           }}
         >
           <span style={{ fontSize: "28px", marginBottom: "-8px" }}>✨</span>
-          <img
-            src={kittyHero as unknown as string}
-            width={140}
-            height={180}
-            style={{ objectFit: "contain" }}
-          />
+          {kittyHero && (
+            <img
+              src={kittyHero as unknown as string}
+              width={140}
+              height={180}
+              style={{ objectFit: "contain" }}
+            />
+          )}
         </div>
 
         {/* Score */}
@@ -176,19 +187,23 @@ export async function GET(req: NextRequest) {
                   ) : badge.includes("Prayer") ? (
                     "😇"
                   ) : badge.includes("Coin") ? (
-                    <img
-                      src={coin as unknown as string}
-                      width={20}
-                      height={20}
-                      style={{ objectFit: "contain" }}
-                    />
+                    coin ? (
+                      <img
+                        src={coin as unknown as string}
+                        width={20}
+                        height={20}
+                        style={{ objectFit: "contain" }}
+                      />
+                    ) : "🪙"
                   ) : badge.includes("Legend") || badge.includes("Master") ? (
-                    <img
-                      src={kittyFace as unknown as string}
-                      width={20}
-                      height={20}
-                      style={{ objectFit: "contain" }}
-                    />
+                    kittyFace ? (
+                      <img
+                        src={kittyFace as unknown as string}
+                        width={20}
+                        height={20}
+                        style={{ objectFit: "contain" }}
+                      />
+                    ) : "😺"
                   ) : (
                     "⭐"
                   )}
@@ -218,12 +233,14 @@ export async function GET(req: NextRequest) {
             padding: "14px 36px",
           }}
         >
-          <img
-            src={kittyFace as unknown as string}
-            width={22}
-            height={22}
-            style={{ objectFit: "contain" }}
-          />
+          {kittyFace && (
+            <img
+              src={kittyFace as unknown as string}
+              width={22}
+              height={22}
+              style={{ objectFit: "contain" }}
+            />
+          )}
           <span style={{ fontSize: "22px", fontWeight: 700, color: "white" }}>
             Play in Farcaster
           </span>

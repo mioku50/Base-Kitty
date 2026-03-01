@@ -2,7 +2,6 @@ import * as Phaser from "phaser";
 import type { GameStats, GameOverCallback, SocialFriend } from "../types";
 import { GAME_EVENTS } from "../types";
 
-const GAME_WIDTH = 400;
 const PLATFORM_HEIGHT = 12;
 const PLATFORM_WIDTH = 80;
 const PLAYER_BOUNCE = -600;
@@ -47,8 +46,8 @@ export default class GameScene extends Phaser.Scene {
   private nextPlatformY = 0;
   private bgImages: Phaser.GameObjects.Image[] = [];
   private isGameOver = false;
-  private lastPointerX = GAME_WIDTH / 2;
-  private targetX = GAME_WIDTH / 2;
+  private lastPointerX = 200;
+  private targetX = 200;
   private pointerDown = false;
   private pointerDownTime = 0;
   private shootCooldownMs = 0;
@@ -716,7 +715,7 @@ export default class GameScene extends Phaser.Scene {
     }
     const camY = this.cameras.main.scrollY;
     this.boostPopupText = this.add
-      .text(GAME_WIDTH / 2, camY + 80, `😺 Boosted by @${username}!`, {
+      .text(this.scale.width / 2, camY + 80, `😺 Boosted by @${username}!`, {
         fontSize: '16px',
         fontStyle: 'bold',
         color: '#ffe066',
@@ -766,6 +765,7 @@ export default class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number) {
     if (this.isGameOver || this.isPaused) return;
+    const viewWidth = this.scale.width;
 
     // Smooth horizontal movement following pointer
     const lerpFactor = 0.12;
@@ -774,8 +774,8 @@ export default class GameScene extends Phaser.Scene {
     this.player.x += dx * lerpFactor;
 
     // Screen wrap horizontal
-    if (this.player.x < -10) this.player.x = GAME_WIDTH + 10;
-    if (this.player.x > GAME_WIDTH + 10) this.player.x = -10;
+    if (this.player.x < -10) this.player.x = viewWidth + 10;
+    if (this.player.x > viewWidth + 10) this.player.x = -10;
 
     // Shoot cooldown
     if (this.shootCooldownMs > 0) {
@@ -837,7 +837,7 @@ export default class GameScene extends Phaser.Scene {
             sprite.x += driftSpeed * (delta / 1000);
 
             // Reverse drift direction at screen edges
-            if (sprite.x < 30 || sprite.x > GAME_WIDTH - 30) {
+            if (sprite.x < 30 || sprite.x > viewWidth - 30) {
               sprite.setData('driftSpeed', -driftSpeed);
             }
 
@@ -870,7 +870,7 @@ export default class GameScene extends Phaser.Scene {
         return;
       }
       const leftBound  = enemy.getData('leftBound') as number ?? 20;
-      const rightBound = enemy.getData('rightBound') as number ?? GAME_WIDTH - 20;
+      const rightBound = enemy.getData('rightBound') as number ?? viewWidth - 20;
       const speed      = enemy.getData('speed') as number ?? ENEMY_PATROL_SPEED;
       if (enemy.x <= leftBound) {
         enemy.setVelocityX(Math.abs(speed));
@@ -902,7 +902,7 @@ export default class GameScene extends Phaser.Scene {
       if (driftSpeed !== 0 && !cloudsFrozen) {
         sprite.x += driftSpeed * (delta / 1000);
         if (label) label.x = sprite.x;
-        if (sprite.x < 30 || sprite.x > GAME_WIDTH - 30) {
+        if (sprite.x < 30 || sprite.x > viewWidth - 30) {
           sprite.setData('driftSpeed', -driftSpeed);
         }
         (sprite.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();

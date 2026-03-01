@@ -8,10 +8,13 @@ export function createGameConfig(
   onGameOver: GameOverCallback,
   socialFriends: SocialFriend[] = []
 ): Phaser.Types.Core.GameConfig {
+  const initialWidth = parent.clientWidth || 400;
+  const initialHeight = parent.clientHeight || 650;
+
   return {
     type: Phaser.AUTO,
-    width: 400,
-    height: 650,
+    width: initialWidth,
+    height: initialHeight,
     parent,
     backgroundColor: "#0a0020",
     physics: {
@@ -23,7 +26,7 @@ export function createGameConfig(
     },
     scene: [BootScene, new GameScene(onGameOver, socialFriends)],
     scale: {
-      mode: Phaser.Scale.FIT,
+      mode: Phaser.Scale.RESIZE,
       autoCenter: Phaser.Scale.CENTER_BOTH,
     },
   };

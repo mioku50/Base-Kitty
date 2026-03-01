@@ -16,7 +16,7 @@ import { type AccountAssociation } from '@farcaster/miniapp-core/src/manifest';
  * The base URL of the application.
  * Used for generating absolute URLs for assets and API endpoints.
  */
-export const APP_URL: string = process.env.NEXT_PUBLIC_URL!;
+export const APP_URL: string = process.env.NEXT_PUBLIC_URL || 'https://base-kitty.vercel.app';
 
 /**
  * The name of the mini app as displayed to users.

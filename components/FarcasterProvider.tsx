@@ -45,6 +45,21 @@ export default function FarcasterProvider({
 
   // Initialize SDK and signal ready
   useEffect(() => {
+    let readyCalled = false;
+    const safeReady = () => {
+      if (readyCalled) return;
+      try {
+        sdk.actions.ready();
+        readyCalled = true;
+      } catch {
+        // Ignore outside mini app context.
+      }
+    };
+
+    // Call ready as early as possible to avoid splash warnings in host clients.
+    safeReady();
+    const readyRetryTimer = window.setTimeout(safeReady, 800);
+
     const init = async () => {
       try {
         // Load SDK context (works inside Farcaster clients)
@@ -62,16 +77,14 @@ export default function FarcasterProvider({
         console.log("[FC] Not running inside Farcaster client");
       }
       setIsSDKLoaded(true);
-
-      // Tell the host we're ready (hides splash screen)
-      try {
-        sdk.actions.ready();
-      } catch {
-        // ignore if not in mini app context
-      }
+      safeReady();
     };
 
     init();
+
+    return () => {
+      window.clearTimeout(readyRetryTimer);
+    };
   }, []);
 
   // Quick Auth sign-in

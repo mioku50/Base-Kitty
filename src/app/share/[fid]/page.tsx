@@ -22,6 +22,11 @@ export async function generateMetadata({
       description: APP_DESCRIPTION,
       images: [imageUrl],
     },
+    twitter: {
+      card: "summary_large_image",
+      title: `${APP_NAME} - Share`,
+      images: [imageUrl],
+    },
     other: {
       "fc:frame": JSON.stringify(getMiniAppEmbedMetadata(imageUrl)),
     },

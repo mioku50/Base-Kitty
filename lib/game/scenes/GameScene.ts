@@ -163,7 +163,7 @@ export default class GameScene extends Phaser.Scene {
     // Camera
     this.cameras.main.setBounds(0, -99999, width, 100000 + height);
     this.cameras.main.startFollow(this.player, true, 0.08, 0.08);
-    this.cameras.main.setFollowOffset(0, height * 0.15);
+    this.cameras.main.setFollowOffset(0, -height * 0.05);
 
     // Colliders
     type PhysicsObj = Phaser.Types.Physics.Arcade.GameObjectWithBody | Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody | Phaser.Tilemaps.Tile;

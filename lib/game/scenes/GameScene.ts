@@ -17,8 +17,8 @@ const CANDLE_INTERVAL_MIN = 1000;   // ms floor
 const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
 const ENEMY_SPAWN_MULTIPLIER = 1 / 6; // reduce enemy density ~6x from original (~2x from current)
-const PRAYER_FILL_ENEMY = 2;     // prayer points per enemy kill
-const PRAYER_FILL_COIN  = 1;     // prayer points per coin
+const PRAYER_FILL_ENEMY = 20;    // prayer points per enemy kill (x10)
+const PRAYER_FILL_COIN  = 10;    // prayer points per coin (x10)
 const PRAYER_FREEZE_MS  = 10000; // freeze duration ms
 // Cloud drift speeds per stage (min, max)
 const CLOUD_DRIFT_SPEEDS = [

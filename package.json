@@ -16,6 +16,7 @@
     "@farcaster/miniapp-sdk": "^0.2.3",
     "@farcaster/quick-auth": "^0.0.8",
     "@neynar/nodejs-sdk": "^3.137.0",
+    "@upstash/redis": "^1.36.3",
     "next": "16.1.6",
     "phaser": "^3.90.0",
     "react": "19.2.4",

@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useFarcaster } from "./FarcasterProvider";
 import KittyIcon from "./KittyIcon";
 import type { GameStats } from "../lib/game/types";
+import { sdk } from "@farcaster/miniapp-sdk";
 
 interface Props {
   stats: GameStats;
@@ -38,23 +39,51 @@ function BadgeIcon({ badge }: { badge: string }) {
 
 export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) {
   const { user, composeCast } = useFarcaster();
+  const [contextUser, setContextUser] = useState<{
+    fid: number;
+    username?: string;
+    displayName?: string;
+    pfpUrl?: string;
+  } | null>(null);
   const [shared, setShared] = useState(false);
   const [revived, setRevived] = useState(false);
   const [bestScore, setBestScore] = useState(stats.score);
   const [badges, setBadges] = useState<string[]>([]);
   const isNewBest = stats.score >= bestScore;
+  const effectiveUser = user || contextUser;
+
+  useEffect(() => {
+    if (user) return;
+
+    let mounted = true;
+    sdk.context
+      .then((ctx) => {
+        if (!mounted || !ctx?.user) return;
+        setContextUser({
+          fid: ctx.user.fid,
+          username: ctx.user.username ?? undefined,
+          displayName: ctx.user.displayName ?? undefined,
+          pfpUrl: ctx.user.pfpUrl ?? undefined,
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      mounted = false;
+    };
+  }, [user]);
 
   // Submit score on mount
   useEffect(() => {
-    if (user) {
+    if (effectiveUser) {
       fetch("/api/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          fid: user.fid,
-          username: user.username,
-          displayName: user.displayName,
-          pfpUrl: user.pfpUrl,
+          fid: effectiveUser.fid,
+          username: effectiveUser.username,
+          displayName: effectiveUser.displayName,
+          pfpUrl: effectiveUser.pfpUrl,
           score: stats.score,
           enemiesKilled: stats.enemiesKilled,
           coinsCollected: stats.coinsCollected,
@@ -76,14 +105,14 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
       if (stats.prayersUsed >= 1) b.push(`Prayer Warrior x${stats.prayersUsed}`);
       setBadges(b);
     }
-  }, [stats, user]);
+  }, [stats, effectiveUser]);
 
   // Build OG image URL for the share card
   const ogUrl = (() => {
     const base = typeof window !== "undefined" ? window.location.origin : "";
     const params = new URLSearchParams({
       score: String(stats.score),
-      username: user?.username || "anon",
+      username: effectiveUser?.username || "anon",
       stage: String(stats.maxStage),
       badges: badges.join(","),
     });

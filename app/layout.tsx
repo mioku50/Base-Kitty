@@ -11,6 +11,7 @@ function getAppUrl() {
 
 const APP_URL = getAppUrl();
 const OG_IMAGE_URL = `${APP_URL}/api/og`;
+const APP_ICON_URL = `${APP_URL}/api/icon?v=2`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
@@ -31,6 +32,10 @@ export const metadata: Metadata = {
     description:
       "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
     images: [OG_IMAGE_URL],
+  },
+  icons: {
+    icon: APP_ICON_URL,
+    apple: APP_ICON_URL,
   },
   other: {
     "base:app_id": "69a595a077bc7576330f4ae7",

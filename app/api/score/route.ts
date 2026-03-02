@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
+
+export const runtime = "nodejs";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 export interface ScoreEntry {
@@ -17,8 +20,46 @@ export interface ScoreEntry {
   timestamp: number;
 }
 
-// ─── In-memory store (replace with DB in production) ───────────────────────
-const store: ScoreEntry[] = [];
+const SCORES_KEY = "nimbus_ascent:scores:v1";
+let inMemoryStore: ScoreEntry[] = [];
+
+function getRedisClient() {
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+  if (!url || !token) return null;
+  return new Redis({ url, token });
+}
+
+const redis = getRedisClient();
+
+async function readStore(): Promise<ScoreEntry[]> {
+  if (!redis) {
+    return inMemoryStore;
+  }
+
+  try {
+    const data = await redis.get<ScoreEntry[] | null>(SCORES_KEY);
+    if (!Array.isArray(data)) return [];
+    return data;
+  } catch (err) {
+    console.error("[score] read store failed, using memory fallback", err);
+    return inMemoryStore;
+  }
+}
+
+async function writeStore(store: ScoreEntry[]) {
+  if (!redis) {
+    inMemoryStore = store;
+    return;
+  }
+
+  try {
+    await redis.set(SCORES_KEY, store);
+  } catch (err) {
+    console.error("[score] write store failed, using memory fallback", err);
+    inMemoryStore = store;
+  }
+}
 
 function currentWeekKey(): string {
   const now = new Date();
@@ -31,6 +72,7 @@ function currentWeekKey(): string {
 // ─── POST: submit score ────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
+    const store = await readStore();
     const body = await req.json();
     const {
       fid,
@@ -91,10 +133,13 @@ export async function POST(req: NextRequest) {
     }
 
     const entry = store.find((s) => s.fid === fid)!;
+    await writeStore(store);
+
     return NextResponse.json({
       ok: true,
       bestScore: entry.bestScore,
       badges: deriveBadges(entry),
+      storage: redis ? "redis" : "memory",
     });
   } catch {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
@@ -103,6 +148,7 @@ export async function POST(req: NextRequest) {
 
 // ─── GET: leaderboard ──────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
+  const store = await readStore();
   const mode = req.nextUrl.searchParams.get("mode") || "weekly";
   const fidParam = req.nextUrl.searchParams.get("fid");
   const friendFidsParam = req.nextUrl.searchParams.get("friends"); // comma-separated
@@ -135,7 +181,11 @@ export async function GET(req: NextRequest) {
     badges: deriveBadges(entry),
   }));
 
-  return NextResponse.json({ leaderboard, mode });
+  return NextResponse.json({
+    leaderboard,
+    mode,
+    storage: redis ? "redis" : "memory",
+  });
 }
 
 // ─── Badge derivation ──────────────────────────────────────────────────────

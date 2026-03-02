@@ -21,7 +21,7 @@ interface FarcasterCtx {
   isSDKLoaded: boolean;
   isAuthenticated: boolean;
   signIn: () => Promise<void>;
-  composeCast: (text: string) => Promise<void>;
+  composeCast: (text: string, options?: { embeds?: string[] }) => Promise<void>;
 }
 
 const FarcasterContext = createContext<FarcasterCtx>({
@@ -112,17 +112,22 @@ export default function FarcasterProvider({
   }, []);
 
   // Compose a cast via SDK
-  const composeCast = useCallback(async (text: string) => {
+  const composeCast = useCallback(async (text: string, options?: { embeds?: string[] }) => {
+    const embeds = (options?.embeds ?? []).filter(Boolean).slice(0, 2);
     try {
-      await sdk.actions.composeCast({ text });
+      if (embeds.length === 0) {
+        await sdk.actions.composeCast({ text });
+      } else if (embeds.length === 1) {
+        await sdk.actions.composeCast({ text, embeds: [embeds[0]] });
+      } else {
+        await sdk.actions.composeCast({ text, embeds: [embeds[0], embeds[1]] });
+      }
     } catch (err) {
       console.error("[FC] composeCast failed:", err);
       // Fallback: open Warpcast intent in new tab
-      const encoded = encodeURIComponent(text);
-      window.open(
-        `https://warpcast.com/~/compose?text=${encoded}`,
-        "_blank"
-      );
+      const params = new URLSearchParams({ text });
+      embeds.forEach((embed) => params.append("embeds[]", embed));
+      window.open(`https://warpcast.com/~/compose?${params.toString()}`, "_blank");
     }
   }, []);
 

@@ -96,11 +96,11 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
       badges.length > 0
         ? `\n${badges.slice(0, 3).map((b: string) => `😺 ${b}`).join(" ")}`
         : "";
-    const text = `😺 I scored ${stats.score.toLocaleString()} in Nimbus Ascent!${badgeText}\n\nCan you beat me?\n${appUrl}`;
-    await composeCast(text);
+    const text = `😺 I scored ${stats.score.toLocaleString()} in Nimbus Ascent!${badgeText}\n\nCan you beat me?`;
+    await composeCast(text, { embeds: [appUrl, ogUrl] });
     setShared(true);
     setTimeout(() => setRevived(true), 1200);
-  }, [stats.score, badges, composeCast]);
+  }, [stats.score, badges, composeCast, ogUrl]);
 
   if (revived) {
     onRestart();
@@ -112,7 +112,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
       {/* Game Over header */}
       <div className="mt-3 mb-2 relative w-44 h-20 shrink-0">
         <Image
-          src="/assets/game-over.png"
+          src="/assets/Game Over.PNG"
           alt="Game Over"
           fill
           style={{ objectFit: "contain" }}

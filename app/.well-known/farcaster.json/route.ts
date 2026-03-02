@@ -1,6 +1,7 @@
 export async function GET() {
   const rawUrl = process.env.NEXT_PUBLIC_URL?.trim() || "https://base-kitty.vercel.app";
   const URL = rawUrl.replace(/\/+$/, "");
+  const ogImageUrl = `${URL}/api/og`;
 
   return Response.json({
     accountAssociation: {
@@ -22,11 +23,11 @@ export async function GET() {
       screenshotUrls: [],
       primaryCategory: "games",
       tags: ["base", "game", "farcaster", "jump"],
-      heroImageUrl: `${URL}/og.png`,
+      heroImageUrl: ogImageUrl,
       ogTitle: "Nimbus Ascent",
       ogDescription:
         "Rise from Web2 to Onchain Heaven! A Doodle Jump style MiniApp for Farcaster.",
-      ogImageUrl: `${URL}/og.png`,
+      ogImageUrl,
     },
   });
 }

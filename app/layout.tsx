@@ -10,21 +10,32 @@ function getAppUrl() {
 }
 
 const APP_URL = getAppUrl();
+const OG_IMAGE_URL = `${APP_URL}/api/og`;
 
 export const metadata: Metadata = {
+  metadataBase: new URL(APP_URL),
   title: "Nimbus Ascent",
   description:
     "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
   openGraph: {
+    type: "website",
+    url: APP_URL,
     title: "Nimbus Ascent",
     description:
       "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
-    images: [`${APP_URL}/og.png`],
+    images: [OG_IMAGE_URL],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Nimbus Ascent",
+    description:
+      "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
+    images: [OG_IMAGE_URL],
   },
   other: {
     "fc:miniapp": JSON.stringify({
       version: "next",
-      imageUrl: `${APP_URL}/og.png`,
+      imageUrl: OG_IMAGE_URL,
       button: {
         title: "Play Nimbus Ascent",
         action: {

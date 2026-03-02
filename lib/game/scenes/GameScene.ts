@@ -10,6 +10,7 @@ const PLATFORM_SPACING_MIN = 60;
 const PLATFORM_SPACING_MAX = 120;
 const GRAVITY = 700;
 const LOVE_SPEED = -700;
+const HOLD_MOVE_SPEED = 260;
 const ENEMY_PATROL_SPEED = 55;
 const CANDLE_SPEED = 350;
 const CANDLE_INTERVAL_BASE = 2500;  // ms
@@ -20,6 +21,10 @@ const ENEMY_SPAWN_MULTIPLIER = 1 / 6; // reduce enemy density ~6x from original 
 const PRAYER_FILL_ENEMY = 20;    // prayer points per enemy kill (x10)
 const PRAYER_FILL_COIN  = 10;    // prayer points per coin (x10)
 const PRAYER_FREEZE_MS  = 10000; // freeze duration ms
+const TAP_MAX_DURATION_MS = 180;
+const TAP_MAX_TRAVEL_PX = 16;
+const DOUBLE_TAP_MAX_DISTANCE_PX = 48;
+const SHOOT_TAP_RADIUS_PX = 130;
 // Cloud drift speeds per stage (min, max)
 const CLOUD_DRIFT_SPEEDS = [
   { min: 15, max: 30 },  // Stage 0: slow
@@ -46,10 +51,11 @@ export default class GameScene extends Phaser.Scene {
   private nextPlatformY = 0;
   private bgImages: Phaser.GameObjects.Image[] = [];
   private isGameOver = false;
-  private lastPointerX = 200;
-  private targetX = 200;
+  private pointerStartX = 200;
+  private pointerStartY = 0;
   private pointerDown = false;
   private pointerDownTime = 0;
+  private moveDir: -1 | 0 | 1 = 0;
   private shootCooldownMs = 0;
   private bgStage = 0;
   private gameOverCallback?: GameOverCallback;
@@ -57,6 +63,8 @@ export default class GameScene extends Phaser.Scene {
   private coinsCollected = 0;
   private prayersUsed = 0;
   private lastTapTime = 0;
+  private lastTapX = 0;
+  private lastTapY = 0;
   private readonly DOUBLE_TAP_THRESHOLD = 300;
   private hookUsed = false;
   private platformsSpawned = 0;
@@ -380,8 +388,8 @@ export default class GameScene extends Phaser.Scene {
     this.input.on("pointermove", this.onPointerMove, this);
     this.input.on("pointerup", this.onPointerUp, this);
 
-    this.targetX = width / 2;
-    this.lastPointerX = width / 2;
+    this.pointerStartX = width / 2;
+    this.pointerStartY = height / 2;
 
     this.scale.on("resize", this.onScaleResize);
     this.events.on(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate, this);
@@ -454,35 +462,70 @@ export default class GameScene extends Phaser.Scene {
 
   // ─── Input handlers ──────────────────────────────────────────────────────────
 
+  private getPointerMoveDir(x: number): -1 | 0 | 1 {
+    const width = this.scale.width;
+    if (x < width * 0.45) return -1;
+    if (x > width * 0.55) return 1;
+    return 0;
+  }
+
+  private isShootTapCandidate(pointer: Phaser.Input.Pointer): boolean {
+    const playerScreenX = this.player.x;
+    const playerScreenY = this.player.y - this.cameras.main.scrollY;
+    const dist = Phaser.Math.Distance.Between(
+      pointer.x,
+      pointer.y,
+      playerScreenX,
+      playerScreenY
+    );
+    return dist <= SHOOT_TAP_RADIUS_PX;
+  }
+
   private onPointerDown(pointer: Phaser.Input.Pointer) {
     this.pointerDown = true;
     this.pointerDownTime = this.time.now;
-    this.lastPointerX = pointer.x;
-    this.targetX = pointer.x;
+    this.pointerStartX = pointer.x;
+    this.pointerStartY = pointer.y;
+    this.moveDir = this.getPointerMoveDir(pointer.x);
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer) {
     if (this.pointerDown) {
-      this.targetX = pointer.x;
-      this.lastPointerX = pointer.x;
+      this.moveDir = this.getPointerMoveDir(pointer.x);
     }
   }
 
   private onPointerUp(pointer: Phaser.Input.Pointer) {
     const duration = this.time.now - this.pointerDownTime;
-    const dx = Math.abs(pointer.x - this.lastPointerX);
+    const travel = Phaser.Math.Distance.Between(
+      pointer.x,
+      pointer.y,
+      this.pointerStartX,
+      this.pointerStartY
+    );
+    const isTap = duration <= TAP_MAX_DURATION_MS && travel <= TAP_MAX_TRAVEL_PX;
 
-    if (duration < 200 && dx < 20) {
-      // It's a tap — check for double tap
+    if (isTap && this.isShootTapCandidate(pointer)) {
       const now = this.time.now;
-      if (now - this.lastTapTime < this.DOUBLE_TAP_THRESHOLD) {
+      const nearPreviousTap =
+        now - this.lastTapTime < this.DOUBLE_TAP_THRESHOLD &&
+        Phaser.Math.Distance.Between(pointer.x, pointer.y, this.lastTapX, this.lastTapY) <=
+          DOUBLE_TAP_MAX_DISTANCE_PX;
+
+      if (nearPreviousTap) {
         this.shootLove();
-        this.lastTapTime = 0; // reset
+        this.lastTapTime = 0;
       } else {
         this.lastTapTime = now;
+        this.lastTapX = pointer.x;
+        this.lastTapY = pointer.y;
       }
+    } else {
+      this.lastTapTime = 0;
     }
+
     this.pointerDown = false;
+    this.moveDir = 0;
   }
 
   // ─── Shooting ─────────────────────────────────────────────────────────────
@@ -860,11 +903,10 @@ export default class GameScene extends Phaser.Scene {
     if (this.isGameOver || this.isPaused) return;
     const viewWidth = this.scale.width;
 
-    // Smooth horizontal movement following pointer
-    const lerpFactor = 0.12;
-    const currentX = this.player.x;
-    const dx = this.targetX - currentX;
-    this.player.x += dx * lerpFactor;
+    // Continuous hold controls: press left/right zone to move in that direction.
+    if (this.pointerDown && this.moveDir !== 0) {
+      this.player.x += this.moveDir * HOLD_MOVE_SPEED * (delta / 1000);
+    }
 
     // Screen wrap horizontal
     if (this.player.x < -10) this.player.x = viewWidth + 10;

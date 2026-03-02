@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-const ICON_VERSION = "2";
+const ICON_VERSION = "3";
 
 export async function GET() {
   const rawUrl = process.env.NEXT_PUBLIC_URL?.trim() || "https://base-kitty.vercel.app";

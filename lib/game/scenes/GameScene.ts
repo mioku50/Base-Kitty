@@ -72,6 +72,7 @@ export default class GameScene extends Phaser.Scene {
   private isPaused = false;
   private cloudsSocial!: Phaser.Physics.Arcade.StaticGroup;
   private socialFriends: SocialFriend[] = [];
+  private avatarLoadQueued = new Set<string>();
   private boostPopupText?: Phaser.GameObjects.Text;
   private soundEnabled = true;
   private onScaleResize = (gameSize: { width: number; height: number }) => {
@@ -112,7 +113,7 @@ export default class GameScene extends Phaser.Scene {
       this.gameOverCallback = data.onGameOver;
     }
     if (data?.socialFriends) {
-      this.socialFriends = data.socialFriends;
+      this.socialFriends = this.normalizeSocialFriends(data.socialFriends);
     }
     this.score = 0;
     this.isGameOver = false;
@@ -158,14 +159,7 @@ export default class GameScene extends Phaser.Scene {
     this.enemies = this.physics.add.group({ allowGravity: false });
     this.candles = this.physics.add.group({ allowGravity: false });
 
-    // Pre-load friend avatars as textures
-    this.socialFriends.forEach((f) => {
-      const key = `avatar-${f.fid}`;
-      if (!this.textures.exists(key)) {
-        this.load.image(key, f.pfpUrl);
-      }
-    });
-    this.load.start();
+    this.queueSocialAvatarLoads(this.socialFriends);
 
     // Generate initial platforms
     this.nextPlatformY = height - 80;
@@ -417,6 +411,45 @@ export default class GameScene extends Phaser.Scene {
       this.scale.off("resize", this.onScaleResize);
       this.events.off(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate, this);
     });
+  }
+
+  // Public API: allows React layer to refresh social friends while a run is already active.
+  setSocialFriends(friends: SocialFriend[]) {
+    this.socialFriends = this.normalizeSocialFriends(friends);
+    this.queueSocialAvatarLoads(this.socialFriends);
+  }
+
+  private normalizeSocialFriends(friends: SocialFriend[]): SocialFriend[] {
+    const deduped = new Map<number, SocialFriend>();
+    friends.forEach((friend) => {
+      if (!friend || typeof friend.fid !== "number") return;
+      if (!friend.pfpUrl) return;
+      const existing = deduped.get(friend.fid);
+      if (existing) return;
+      deduped.set(friend.fid, {
+        fid: friend.fid,
+        username: friend.username || `fid:${friend.fid}`,
+        pfpUrl: friend.pfpUrl,
+      });
+    });
+    return [...deduped.values()];
+  }
+
+  private queueSocialAvatarLoads(friends: SocialFriend[]) {
+    let queuedAtLeastOne = false;
+
+    friends.forEach((friend) => {
+      const key = `avatar-${friend.fid}`;
+      if (this.textures.exists(key)) return;
+      if (this.avatarLoadQueued.has(key)) return;
+      this.avatarLoadQueued.add(key);
+      this.load.image(key, friend.pfpUrl);
+      queuedAtLeastOne = true;
+    });
+
+    if (queuedAtLeastOne && !this.load.isLoading()) {
+      this.load.start();
+    }
   }
 
   private canLandOnCloud(playerObj: Phaser.Physics.Arcade.Sprite, cloudObj: Phaser.Physics.Arcade.Sprite) {

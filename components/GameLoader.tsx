@@ -18,6 +18,29 @@ const PhaserGame = dynamic(() => import("./PhaserGame"), {
 });
 
 type Screen = "entry" | "playing" | "gameover" | "leaderboard";
+const SOCIAL_FETCH_TIMEOUT_MS = 8000;
+const MAX_SOCIAL_FRIENDS = 24;
+
+interface LeaderboardFallbackEntry {
+  fid: number;
+  username?: string;
+  pfpUrl?: string;
+}
+
+function normalizeSocialFriends(friends: SocialFriend[]): SocialFriend[] {
+  const byFid = new Map<number, SocialFriend>();
+  friends.forEach((friend) => {
+    if (!friend || typeof friend.fid !== "number") return;
+    if (!friend.pfpUrl) return;
+    if (byFid.has(friend.fid)) return;
+    byFid.set(friend.fid, {
+      fid: friend.fid,
+      username: friend.username || `fid:${friend.fid}`,
+      pfpUrl: friend.pfpUrl,
+    });
+  });
+  return [...byFid.values()].slice(0, MAX_SOCIAL_FRIENDS);
+}
 
 export default function GameLoader() {
   const { user } = useFarcaster();
@@ -26,22 +49,84 @@ export default function GameLoader() {
   const [gameKey, setGameKey] = useState(0);
   const [socialFriends, setSocialFriends] = useState<SocialFriend[]>([]);
 
-  // Fetch social friends once user is authenticated
+  // Fetch social friends (following first, then fallback to all-time top users).
   useEffect(() => {
-    if (!user) return;
-    fetch(`/api/friends?fid=${user.fid}`)
-      .then((r) => r.json())
-      .then((data: { fids?: number[] }) => {
-        if (!data.fids || data.fids.length === 0) return;
-        // Resolve fids → profiles via Neynar bulk lookup
-        const fidsParam = data.fids.slice(0, 20).join(",");
-        return fetch(`/api/profiles?fids=${fidsParam}`);
-      })
-      .then((r) => r?.json())
-      .then((data: { users?: SocialFriend[] } | undefined) => {
-        if (data?.users) setSocialFriends(data.users);
-      })
-      .catch(() => {});
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), SOCIAL_FETCH_TIMEOUT_MS);
+    let cancelled = false;
+
+    const fetchJson = async <T,>(url: string): Promise<T | null> => {
+      const res = await fetch(url, {
+        cache: "no-store",
+        signal: controller.signal,
+        headers: {
+          "cache-control": "no-store",
+        },
+      });
+      if (!res.ok) return null;
+      return (await res.json()) as T;
+    };
+
+    const run = async () => {
+      const pool: SocialFriend[] = [];
+
+      if (user) {
+        const friendsData = await fetchJson<{ fids?: number[] }>(
+          `/api/friends?fid=${user.fid}`
+        );
+        const fids = Array.isArray(friendsData?.fids)
+          ? friendsData.fids.filter((fid): fid is number => typeof fid === "number").slice(0, MAX_SOCIAL_FRIENDS)
+          : [];
+
+        if (fids.length > 0) {
+          const profilesData = await fetchJson<{ users?: SocialFriend[] }>(
+            `/api/profiles?fids=${fids.join(",")}`
+          );
+          if (Array.isArray(profilesData?.users)) {
+            pool.push(...profilesData.users);
+          }
+        }
+
+        // Keep at least one avatar candidate for social clouds.
+        if (pool.length === 0 && user.pfpUrl) {
+          pool.push({
+            fid: user.fid,
+            username: user.username || `fid:${user.fid}`,
+            pfpUrl: user.pfpUrl,
+          });
+        }
+      }
+
+      // Fallback source: top users from all-time leaderboard.
+      if (pool.length < 6) {
+        const scoreData = await fetchJson<{ leaderboard?: LeaderboardFallbackEntry[] }>(
+          "/api/score?mode=alltime"
+        );
+        if (Array.isArray(scoreData?.leaderboard)) {
+          scoreData.leaderboard.forEach((entry) => {
+            if (!entry || typeof entry.fid !== "number" || !entry.pfpUrl) return;
+            pool.push({
+              fid: entry.fid,
+              username: entry.username || `fid:${entry.fid}`,
+              pfpUrl: entry.pfpUrl,
+            });
+          });
+        }
+      }
+
+      const normalized = normalizeSocialFriends(pool);
+      if (!cancelled && normalized.length > 0) {
+        setSocialFriends(normalized);
+      }
+    };
+
+    run().catch(() => {});
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
   }, [user]);
 
   const handlePlay = useCallback(() => {

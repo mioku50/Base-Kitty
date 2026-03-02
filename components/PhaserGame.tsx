@@ -52,6 +52,12 @@ export default function PhaserGame({ onGameOver, onLeaderboard, onRestart, socia
   }, []);
 
   useEffect(() => {
+    const scene = getScene();
+    if (!scene) return;
+    scene.setSocialFriends(socialFriends);
+  }, [socialFriends, getScene]);
+
+  useEffect(() => {
     const onResize = () => {
       const game = gameRef.current;
       const parent = containerRef.current;

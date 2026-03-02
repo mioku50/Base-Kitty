@@ -21,7 +21,29 @@ export interface ScoreEntry {
 }
 
 const SCORES_KEY = "nimbus_ascent:scores:v1";
+const REDIS_TIMEOUT_MS = 2500;
 let inMemoryStore: ScoreEntry[] = [];
+
+function withNoStoreHeaders(init?: ResponseInit): ResponseInit {
+  const headers = new Headers(init?.headers);
+  headers.set("Cache-Control", "no-store, max-age=0");
+  return { ...init, headers };
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    return await Promise.race([promise, timeoutPromise]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
 
 function getRedisClient() {
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
@@ -38,7 +60,11 @@ async function readStore(): Promise<ScoreEntry[]> {
   }
 
   try {
-    const data = await redis.get<ScoreEntry[] | null>(SCORES_KEY);
+    const data = await withTimeout(
+      redis.get<ScoreEntry[] | null>(SCORES_KEY),
+      REDIS_TIMEOUT_MS,
+      "[score] redis get"
+    );
     if (!Array.isArray(data)) return [];
     return data;
   } catch (err) {
@@ -54,7 +80,11 @@ async function writeStore(store: ScoreEntry[]) {
   }
 
   try {
-    await redis.set(SCORES_KEY, store);
+    await withTimeout(
+      redis.set(SCORES_KEY, store),
+      REDIS_TIMEOUT_MS,
+      "[score] redis set"
+    );
   } catch (err) {
     console.error("[score] write store failed, using memory fallback", err);
     inMemoryStore = store;
@@ -87,7 +117,10 @@ export async function POST(req: NextRequest) {
     } = body;
 
     if (!fid || typeof score !== "number") {
-      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid payload" },
+        withNoStoreHeaders({ status: 400 })
+      );
     }
 
     const wk = currentWeekKey();
@@ -135,31 +168,45 @@ export async function POST(req: NextRequest) {
     const entry = store.find((s) => s.fid === fid)!;
     await writeStore(store);
 
-    return NextResponse.json({
-      ok: true,
-      bestScore: entry.bestScore,
-      badges: deriveBadges(entry),
-      storage: redis ? "redis" : "memory",
-    });
+    return NextResponse.json(
+      {
+        ok: true,
+        bestScore: entry.bestScore,
+        badges: deriveBadges(entry),
+        storage: redis ? "redis" : "memory",
+      },
+      withNoStoreHeaders()
+    );
   } catch {
-    return NextResponse.json({ error: "Bad request" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Bad request" },
+      withNoStoreHeaders({ status: 400 })
+    );
   }
 }
 
 // ─── GET: leaderboard ──────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   const store = await readStore();
-  const mode = req.nextUrl.searchParams.get("mode") || "weekly";
+  const modeParam = req.nextUrl.searchParams.get("mode");
+  const mode = modeParam === "alltime" || modeParam === "friends" ? modeParam : "weekly";
   const fidParam = req.nextUrl.searchParams.get("fid");
   const friendFidsParam = req.nextUrl.searchParams.get("friends"); // comma-separated
 
   const wk = currentWeekKey();
   let pool = [...store];
 
-  if (mode === "friends" && friendFidsParam) {
-    const friendFids = friendFidsParam.split(",").map(Number).filter(Boolean);
+  if (mode === "friends") {
+    const friendFids = friendFidsParam
+      ? friendFidsParam.split(",").map(Number).filter(Boolean)
+      : [];
     if (fidParam) friendFids.push(Number(fidParam));
-    pool = pool.filter((s) => friendFids.includes(s.fid));
+
+    const uniqueFriendFids = [...new Set(friendFids)];
+    pool =
+      uniqueFriendFids.length > 0
+        ? pool.filter((s) => uniqueFriendFids.includes(s.fid))
+        : [];
   }
 
   // Sort
@@ -181,11 +228,14 @@ export async function GET(req: NextRequest) {
     badges: deriveBadges(entry),
   }));
 
-  return NextResponse.json({
-    leaderboard,
-    mode,
-    storage: redis ? "redis" : "memory",
-  });
+  return NextResponse.json(
+    {
+      leaderboard,
+      mode,
+      storage: redis ? "redis" : "memory",
+    },
+    withNoStoreHeaders()
+  );
 }
 
 // ─── Badge derivation ──────────────────────────────────────────────────────

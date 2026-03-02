@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useFarcaster } from "./FarcasterProvider";
 import KittyIcon from "./KittyIcon";
@@ -21,40 +21,105 @@ interface Props {
   onBack: () => void;
 }
 
+const REQUEST_TIMEOUT_MS = 8000;
+const CACHE_PREFIX = "nimbus_ascent:leaderboard:";
+
+function readCachedEntries(mode: Mode): LeaderboardEntry[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(`${CACHE_PREFIX}${mode}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { entries?: LeaderboardEntry[] };
+    return Array.isArray(parsed.entries) ? parsed.entries : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeCachedEntries(mode: Mode, entries: LeaderboardEntry[]) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      `${CACHE_PREFIX}${mode}`,
+      JSON.stringify({ entries, ts: Date.now() })
+    );
+  } catch {
+    // Ignore localStorage errors.
+  }
+}
+
 export default function Leaderboard({ onBack }: Props) {
   const { user } = useFarcaster();
   const [mode, setMode] = useState<Mode>("weekly");
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [friendFids, setFriendFids] = useState<number[]>([]);
+  const requestSeq = useRef(0);
 
   // Fetch friend FIDs from Neynar on mount
   useEffect(() => {
     if (!user) return;
-    fetch(`/api/friends?fid=${user.fid}`)
-      .then((r) => r.json())
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    fetch(`/api/friends?fid=${user.fid}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("friends fetch failed"))))
       .then((data) => {
         if (data.fids) setFriendFids(data.fids);
       })
       .catch(() => {});
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
   }, [user]);
 
   const fetchLeaderboard = useCallback(
     async (m: Mode) => {
+      const cached = readCachedEntries(m);
+      if (cached && cached.length > 0) {
+        setEntries(cached);
+      }
+
+      const reqId = ++requestSeq.current;
       setLoading(true);
       const params = new URLSearchParams({ mode: m });
       if (user) params.set("fid", String(user.fid));
-      if (m === "friends" && friendFids.length > 0) {
-        params.set("friends", friendFids.join(","));
+      if (m === "friends") {
+        if (friendFids.length > 0) {
+          params.set("friends", friendFids.join(","));
+        } else if (user) {
+          // In friends mode without fetched list, at least show current user.
+          params.set("friends", String(user.fid));
+        }
       }
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       try {
-        const res = await fetch(`/api/score?${params}`);
+        const res = await fetch(`/api/score?${params.toString()}`, {
+          cache: "no-store",
+          signal: controller.signal,
+          headers: {
+            "cache-control": "no-store",
+          },
+        });
+        if (!res.ok) throw new Error(`Leaderboard request failed: ${res.status}`);
         const data = await res.json();
-        setEntries(data.leaderboard || []);
+        if (reqId !== requestSeq.current) return;
+        const nextEntries = Array.isArray(data.leaderboard) ? data.leaderboard : [];
+        setEntries(nextEntries);
+        writeCachedEntries(m, nextEntries);
       } catch {
-        setEntries([]);
+        if (reqId !== requestSeq.current) return;
+        if (!cached) setEntries([]);
+      } finally {
+        window.clearTimeout(timeout);
+        if (reqId === requestSeq.current) {
+          setLoading(false);
+        }
       }
-      setLoading(false);
     },
     [user, friendFids]
   );

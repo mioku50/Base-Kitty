@@ -11,6 +11,7 @@ const PLATFORM_SPACING_MAX = 120;
 const GRAVITY = 700;
 const LOVE_SPEED = -700;
 const HOLD_MOVE_SPEED = 260;
+const SHOOT_BUTTON_Y_RATIO = 0.56;
 const PRAYER_SCORE_MULTIPLIER = 2;
 const PRAYER_JUMP_MULTIPLIER = 2;
 const ENEMY_PATROL_SPEED = 55;
@@ -23,6 +24,7 @@ const ENEMY_SPAWN_MULTIPLIER = 1 / 6; // reduce enemy density ~6x from original 
 const PRAYER_FILL_ENEMY = 20;    // prayer points per enemy kill (x10)
 const PRAYER_FILL_COIN  = 5;     // prayer points per coin
 const PRAYER_EFFECT_MS  = 10000; // super boost/freeze duration ms
+const CLOUD_DRIFT_BASE_MULTIPLIER = 1.2;
 // Cloud drift speeds per stage (min, max)
 const CLOUD_DRIFT_SPEEDS = [
   { min: 15, max: 30 },  // Stage 0: slow
@@ -96,7 +98,7 @@ export default class GameScene extends Phaser.Scene {
     this.prayerBarFill.setPosition(barX, barY + barH / 2);
     this.prayerBtn.setPosition(width / 2, height - 38);
     this.pauseBtn.setPosition(width - 24, 24);
-    this.shootBtn.setPosition(width - 28, height * 0.44);
+    this.shootBtn.setPosition(width - 28, height * SHOOT_BUTTON_Y_RATIO);
   };
 
   constructor(onGameOver?: GameOverCallback, socialFriends?: SocialFriend[]) {
@@ -358,7 +360,7 @@ export default class GameScene extends Phaser.Scene {
       .text(0, 0, "💖", { fontSize: "18px" })
       .setOrigin(0.5);
     this.shootBtn = this.add
-      .container(width - 28, height * 0.44, [shootBg, shootIcon])
+      .container(width - 28, height * SHOOT_BUTTON_Y_RATIO, [shootBg, shootIcon])
       .setScrollFactor(0)
       .setDepth(30)
       .setSize(44, 44)
@@ -542,7 +544,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private getCloudDriftMultiplier(score: number): number {
-    let multiplier = 1;
+    let multiplier = CLOUD_DRIFT_BASE_MULTIPLIER;
 
     if (score >= 500) multiplier *= 1.3;
     if (score >= 1000) multiplier *= 1.3;

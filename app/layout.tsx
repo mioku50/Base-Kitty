@@ -33,6 +33,7 @@ export const metadata: Metadata = {
     images: [OG_IMAGE_URL],
   },
   other: {
+    "base:app_id": "69a595a077bc7576330f4ae7",
     "fc:miniapp": JSON.stringify({
       version: "next",
       imageUrl: OG_IMAGE_URL,

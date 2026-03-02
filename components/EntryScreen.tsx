@@ -1,16 +1,88 @@
 "use client";
 
+import { useCallback, useMemo, useState } from "react";
 import Image from "next/image";
 import { useFarcaster } from "./FarcasterProvider";
 import KittyIcon from "./KittyIcon";
+import { sdk } from "@farcaster/miniapp-sdk";
 
 interface Props {
   onPlay: () => void;
   onLeaderboard: () => void;
 }
 
+type HexAddress = `0x${string}`;
+
+function asHexAddress(value: string | undefined): HexAddress | null {
+  if (!value) return null;
+  return /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as HexAddress) : null;
+}
+
 export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const { user, isSDKLoaded, signIn } = useFarcaster();
+  const [gmStatus, setGmStatus] = useState<"idle" | "pending" | "success" | "error">("idle");
+  const [gmError, setGmError] = useState<string>("");
+  const [gmTxHash, setGmTxHash] = useState<string>("");
+  const isGmPending = gmStatus === "pending";
+  const gmTargetAddress = useMemo(
+    () => process.env.NEXT_PUBLIC_GM_TARGET_ADDRESS?.trim() || "",
+    []
+  );
+
+  const handleGmTx = useCallback(async () => {
+    setGmStatus("pending");
+    setGmError("");
+    setGmTxHash("");
+
+    try {
+      const provider = await sdk.wallet.getEthereumProvider();
+      if (!provider) {
+        throw new Error("Wallet provider is unavailable in this client");
+      }
+
+      const accounts = (await provider.request({
+        method: "eth_requestAccounts",
+      })) as string[] | undefined;
+      const from = asHexAddress(accounts?.[0]);
+      if (!from) {
+        throw new Error("No wallet account is connected");
+      }
+
+      const baseChainId = "0x2105";
+      const chainId = (await provider.request({ method: "eth_chainId" })) as string;
+      if (chainId !== baseChainId) {
+        try {
+          await provider.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: baseChainId }],
+          });
+        } catch {
+          // Continue and let the wallet decide if tx can be sent on current chain.
+        }
+      }
+
+      const to = asHexAddress(gmTargetAddress) || from;
+      const txHash = (await provider.request({
+        method: "eth_sendTransaction",
+        params: [
+          {
+            from,
+            to,
+            value: "0x0",
+            // "gm" marker in calldata
+            data: "0x676d",
+          },
+        ],
+      })) as string;
+
+      setGmTxHash(txHash);
+      setGmStatus("success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to send gm transaction";
+      setGmError(message);
+      setGmStatus("error");
+    }
+  }, [gmTargetAddress]);
 
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center z-50 overflow-hidden">
@@ -117,8 +189,31 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           😼 Leaderboard
         </button>
 
+        <button
+          onClick={handleGmTx}
+          disabled={!isSDKLoaded || isGmPending}
+          className="w-full py-3 rounded-2xl font-bold text-white text-sm border border-emerald-300/30 bg-emerald-400/10 hover:bg-emerald-400/20 transition-colors disabled:opacity-50"
+        >
+          {isGmPending ? "😇 Sending gm tx..." : "😇 gm on Base"}
+        </button>
+
+        {gmStatus === "success" && (
+          <a
+            href={`https://basescan.org/tx/${gmTxHash}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 text-emerald-300 text-xs underline underline-offset-2"
+          >
+            gm tx sent ✓ view on BaseScan
+          </a>
+        )}
+
+        {gmStatus === "error" && (
+          <p className="mt-2 text-red-300 text-xs text-center">{gmError}</p>
+        )}
+
         {/* Footer */}
-        <p className="text-zinc-600 text-[10px] text-center">
+        <p className="text-zinc-600 text-[10px] text-center mt-4">
           Built on Base • Powered by Farcaster
         </p>
       </div>

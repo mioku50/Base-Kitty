@@ -199,7 +199,7 @@ export default class GameScene extends Phaser.Scene {
       this.player,
       this.cloudsNormal,
       (p) => { asSprite(p).setVelocityY(PLAYER_BOUNCE); },
-      (p) => asSprite(p).body!.velocity.y >= 0,
+      (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
     );
 
@@ -212,7 +212,7 @@ export default class GameScene extends Phaser.Scene {
         asSprite(p).setTexture("rocket");
         asSprite(p).setScale(85 / asSprite(p).height);
       },
-      (p) => asSprite(p).body!.velocity.y >= 0,
+      (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
     );
 
@@ -239,7 +239,7 @@ export default class GameScene extends Phaser.Scene {
           });
         }
       },
-      (p) => asSprite(p).body!.velocity.y >= 0,
+      (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
     );
 
@@ -355,7 +355,7 @@ export default class GameScene extends Phaser.Scene {
         (p as Phaser.Physics.Arcade.Sprite).setVelocityY(BOOST_BOUNCE * 1.15);
         this.showBoostPopup(username || 'friend');
       },
-      (p) => (p as Phaser.Physics.Arcade.Sprite).body!.velocity.y >= 0,
+      (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
     );
 
@@ -384,9 +384,72 @@ export default class GameScene extends Phaser.Scene {
     this.lastPointerX = width / 2;
 
     this.scale.on("resize", this.onScaleResize);
+    this.events.on(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate, this);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off("resize", this.onScaleResize);
+      this.events.off(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate, this);
     });
+  }
+
+  private canLandOnCloud(playerObj: Phaser.Physics.Arcade.Sprite, cloudObj: Phaser.Physics.Arcade.Sprite) {
+    const playerBody = playerObj.body as Phaser.Physics.Arcade.Body | undefined;
+    const cloudBody = cloudObj.body as
+      | Phaser.Physics.Arcade.StaticBody
+      | Phaser.Physics.Arcade.Body
+      | undefined;
+
+    if (!playerBody || !cloudBody) return false;
+    if (playerBody.velocity.y < 0) return false;
+
+    // Only land if the player is actually near the cloud top this frame.
+    const playerBottom = playerBody.bottom;
+    const cloudTop = cloudBody.top;
+    if (playerBottom < cloudTop - 8 || playerBottom > cloudTop + 16) return false;
+
+    // Tighten horizontal tolerance to avoid "landing on empty space".
+    const horizontalDistance = Math.abs(playerBody.center.x - cloudBody.center.x);
+    const maxDistance = cloudBody.width * 0.5 + playerBody.width * 0.15;
+    return horizontalDistance <= maxDistance;
+  }
+
+  private driftCloudGroup(
+    group: Phaser.Physics.Arcade.StaticGroup,
+    delta: number,
+    viewWidth: number,
+    cloudsFrozen: boolean,
+    hasLabel = false
+  ) {
+    if (cloudsFrozen) return;
+
+    group.getChildren().forEach((obj) => {
+      const sprite = obj as Phaser.Physics.Arcade.Sprite;
+      const driftSpeed = sprite.getData("driftSpeed") || 0;
+      if (driftSpeed === 0) return;
+
+      sprite.x += driftSpeed * (delta / 1000);
+      if (sprite.x < 30 || sprite.x > viewWidth - 30) {
+        sprite.setData("driftSpeed", -driftSpeed);
+      }
+
+      if (hasLabel) {
+        const label = sprite.getData("label") as Phaser.GameObjects.Text | undefined;
+        if (label) label.x = sprite.x;
+      }
+
+      const body = sprite.body as Phaser.Physics.Arcade.StaticBody | undefined;
+      body?.updateFromGameObject();
+    });
+  }
+
+  private onPreUpdate(_time: number, delta: number) {
+    if (this.isGameOver || this.isPaused) return;
+
+    const viewWidth = this.scale.width;
+    const cloudsFrozen = this.prayerFreezeMs > 0;
+    this.driftCloudGroup(this.cloudsNormal, delta, viewWidth, cloudsFrozen);
+    this.driftCloudGroup(this.cloudsBouncy, delta, viewWidth, cloudsFrozen);
+    this.driftCloudGroup(this.cloudsFragile, delta, viewWidth, cloudsFrozen);
+    this.driftCloudGroup(this.cloudsSocial, delta, viewWidth, cloudsFrozen, true);
   }
 
   // ─── Input handlers ──────────────────────────────────────────────────────────
@@ -853,27 +916,12 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
-    // Update cloud positions with drift and handle cleanup
-    const cloudsFrozen = this.prayerFreezeMs > 0;
+    // Cleanup clouds below camera
     [this.cloudsNormal, this.cloudsBouncy, this.cloudsFragile].forEach((group) => {
       group.getChildren().forEach((p) => {
         const sprite = p as Phaser.Physics.Arcade.Sprite;
         if (sprite.y > cameraBottom + 200) {
           sprite.destroy();
-        } else {
-          // Apply drift movement to static bodies (skip when frozen)
-          const driftSpeed = sprite.getData('driftSpeed') || 0;
-          if (driftSpeed !== 0 && !cloudsFrozen) {
-            sprite.x += driftSpeed * (delta / 1000);
-
-            // Reverse drift direction at screen edges
-            if (sprite.x < 30 || sprite.x > viewWidth - 30) {
-              sprite.setData('driftSpeed', -driftSpeed);
-            }
-
-            // Refresh static body after position change
-            (sprite.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
-          }
         }
       });
     });
@@ -919,23 +967,13 @@ export default class GameScene extends Phaser.Scene {
       }
     });
 
-    // Update & cleanup social clouds
+    // Cleanup social clouds
     this.cloudsSocial.getChildren().forEach((p) => {
       const sprite = p as Phaser.Physics.Arcade.Sprite;
       const label = sprite.getData('label') as Phaser.GameObjects.Text | undefined;
       if (sprite.y > cameraBottom + 200) {
         label?.destroy();
         sprite.destroy();
-        return;
-      }
-      const driftSpeed = sprite.getData('driftSpeed') || 0;
-      if (driftSpeed !== 0 && !cloudsFrozen) {
-        sprite.x += driftSpeed * (delta / 1000);
-        if (label) label.x = sprite.x;
-        if (sprite.x < 30 || sprite.x > viewWidth - 30) {
-          sprite.setData('driftSpeed', -driftSpeed);
-        }
-        (sprite.body as Phaser.Physics.Arcade.StaticBody).updateFromGameObject();
       }
     });
 

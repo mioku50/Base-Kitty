@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useFarcaster } from "./FarcasterProvider";
 import KittyIcon from "./KittyIcon";
@@ -51,6 +51,20 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
   const [badges, setBadges] = useState<string[]>([]);
   const isNewBest = stats.score >= bestScore;
   const effectiveUser = user || contextUser;
+  const bestScoreKey = useMemo(
+    () => `nimbus_ascent:best:${effectiveUser?.fid ?? "guest"}`,
+    [effectiveUser?.fid]
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(bestScoreKey);
+    const localBest = raw ? Number(raw) : 0;
+    const safeLocalBest = Number.isFinite(localBest) ? localBest : 0;
+    const mergedBest = Math.max(safeLocalBest, stats.score);
+    setBestScore((prev) => Math.max(prev, mergedBest));
+    window.localStorage.setItem(bestScoreKey, String(mergedBest));
+  }, [bestScoreKey, stats.score]);
 
   useEffect(() => {
     if (user) return;
@@ -93,7 +107,13 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
       })
         .then((r) => r.json())
         .then((data) => {
-          if (data.bestScore) setBestScore(data.bestScore);
+          if (data.bestScore) {
+            const mergedBest = Math.max(Number(data.bestScore), stats.score);
+            setBestScore(mergedBest);
+            if (typeof window !== "undefined") {
+              window.localStorage.setItem(bestScoreKey, String(mergedBest));
+            }
+          }
           if (data.badges) setBadges(data.badges);
         })
         .catch(() => {});
@@ -105,7 +125,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
       if (stats.prayersUsed >= 1) b.push(`Prayer Warrior x${stats.prayersUsed}`);
       setBadges(b);
     }
-  }, [stats, effectiveUser]);
+  }, [stats, effectiveUser, bestScoreKey]);
 
   // Build OG image URL for the share card
   const ogUrl = (() => {

@@ -5,60 +5,129 @@ export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   const assetBase = req.nextUrl.origin;
-  const kittyFace = new URL("/assets/kitty-face.png", assetBase).toString();
+  const kittyHero = new URL("/assets/kitty-hero.png", assetBase).toString();
 
   return new ImageResponse(
     (
       <div
         style={{
-          width: "512px",
-          height: "512px",
+          width: "1024px",
+          height: "1024px",
           display: "flex",
+          flexDirection: "column",
           alignItems: "center",
-          justifyContent: "center",
+          justifyContent: "space-between",
           position: "relative",
           overflow: "hidden",
-          borderRadius: "110px",
+          borderRadius: "240px",
           background:
-            "radial-gradient(circle at 30% 20%, #8b5cf6 0%, #3b82f6 55%, #140025 100%)",
+            "radial-gradient(circle at 50% 18%, #f6ecff 0%, #8aa0ff 38%, #6072db 72%, #2a2f7a 100%)",
         }}
       >
+        {/* sky sparkles */}
+        {[...Array(18)].map((_, i) => (
+          <div
+            key={i}
+            style={{
+              position: "absolute",
+              width: `${8 + (i % 4) * 5}px`,
+              height: `${8 + (i % 4) * 5}px`,
+              borderRadius: "999px",
+              background: "rgba(255,255,255,0.88)",
+              top: `${28 + (i * 41) % 420}px`,
+              left: `${40 + (i * 97) % 940}px`,
+              boxShadow: "0 0 14px rgba(255,255,255,0.9)",
+            }}
+          />
+        ))}
+
+        {/* top clouds */}
         <div
           style={{
             position: "absolute",
-            inset: "14px",
-            borderRadius: "96px",
-            border: "2px solid rgba(255,255,255,0.2)",
+            top: "122px",
+            left: "-100px",
+            width: "440px",
+            height: "190px",
+            borderRadius: "200px",
+            background: "rgba(255,245,255,0.7)",
+            filter: "blur(1px)",
+          }}
+        />
+        <div
+          style={{
+            position: "absolute",
+            top: "162px",
+            right: "-110px",
+            width: "450px",
+            height: "210px",
+            borderRadius: "220px",
+            background: "rgba(255,250,255,0.75)",
+            filter: "blur(1px)",
+          }}
+        />
+
+        {/* kitty */}
+        <div
+          style={{
+            position: "absolute",
+            top: "106px",
+            width: "100%",
+            height: "530px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
           }}
         >
           <img
-            src={kittyFace}
-            width={280}
-            height={280}
+            src={kittyHero}
+            width={500}
+            height={500}
             style={{ objectFit: "contain" }}
           />
         </div>
 
-        <span
+        {/* title block */}
+        <div
           style={{
             position: "absolute",
-            top: "48px",
+            bottom: "112px",
             left: "50%",
             transform: "translateX(-50%)",
-            color: "#fff",
-            fontSize: "44px",
-            fontWeight: 900,
-            letterSpacing: "-1px",
-            textShadow: "0 8px 24px rgba(0,0,0,0.35)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: "6px",
+            width: "100%",
           }}
         >
-          Nimbus
-        </span>
+          <span
+            style={{
+              fontSize: "132px",
+              fontWeight: 900,
+              color: "#def8ff",
+              letterSpacing: "-2px",
+              textShadow:
+                "0 10px 0 rgba(56,79,187,0.85), 0 0 14px rgba(255,255,255,0.45)",
+            }}
+          >
+            Nimbus
+          </span>
+          <span
+            style={{
+              fontSize: "148px",
+              fontWeight: 900,
+              color: "#ffd39a",
+              letterSpacing: "-2px",
+              textShadow:
+                "0 10px 0 rgba(76,53,184,0.9), 0 0 16px rgba(255,255,255,0.45)",
+            }}
+          >
+            Ascent
+          </span>
+        </div>
       </div>
     ),
-    { width: 512, height: 512 }
+    { width: 1024, height: 1024 }
   );
 }

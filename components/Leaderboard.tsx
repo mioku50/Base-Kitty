@@ -202,7 +202,7 @@ export default function Leaderboard({ onBack }: Props) {
       {/* Footer */}
       <div className="px-4 pb-4 shrink-0">
         <p className="text-zinc-600 text-[10px] text-center mb-2">
-          Top 10 weekly winners receive $mioku tokens!
+          End of season prize pool: 1,000,000 $mioku for Top 10 players.
         </p>
       </div>
     </div>

@@ -83,17 +83,8 @@ export default function GameLoader() {
             `/api/profiles?fids=${fids.join(",")}`
           );
           if (Array.isArray(profilesData?.users)) {
-            pool.push(...profilesData.users);
+            pool.push(...profilesData.users.filter((u) => u.fid !== user.fid));
           }
-        }
-
-        // Keep at least one avatar candidate for social clouds.
-        if (pool.length === 0 && user.pfpUrl) {
-          pool.push({
-            fid: user.fid,
-            username: user.username || `fid:${user.fid}`,
-            pfpUrl: user.pfpUrl,
-          });
         }
       }
 
@@ -105,6 +96,7 @@ export default function GameLoader() {
         if (Array.isArray(scoreData?.leaderboard)) {
           scoreData.leaderboard.forEach((entry) => {
             if (!entry || typeof entry.fid !== "number" || !entry.pfpUrl) return;
+            if (user && entry.fid === user.fid) return;
             pool.push({
               fid: entry.fid,
               username: entry.username || `fid:${entry.fid}`,

@@ -1,9 +1,39 @@
 import { ImageResponse } from "next/og";
 import { NextRequest } from "next/server";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 export const runtime = "nodejs";
 
+async function tryReadPng(path: string): Promise<Buffer | null> {
+  try {
+    return await readFile(path);
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest) {
+  const customIconFile = "32F53873-4212-4BF4-B478-57D29D58477B.png";
+  const customIconCandidates = [
+    join(process.cwd(), customIconFile),
+    join(process.cwd(), "public", customIconFile),
+    join(process.cwd(), "public", "icon.png"),
+  ];
+
+  for (const iconPath of customIconCandidates) {
+    const imageBuffer = await tryReadPng(iconPath);
+    if (!imageBuffer) continue;
+
+    return new Response(imageBuffer, {
+      headers: {
+        "Content-Type": "image/png",
+        "Cache-Control": "public, max-age=0, must-revalidate",
+      },
+    });
+  }
+
+  // Fall back to generated icon if custom files are missing.
   const assetBase = req.nextUrl.origin;
   const kittyHero = new URL("/assets/kitty-hero.png", assetBase).toString();
 

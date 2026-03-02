@@ -163,7 +163,7 @@ export async function GET(req: NextRequest) {
                 textAlign: "center",
               }}
             >
-              Doodle Jump style Mini App for Farcaster
+              Rise from Web2 to Onchain Heaven
             </span>
             <span
               style={{
@@ -172,7 +172,7 @@ export async function GET(req: NextRequest) {
                 textAlign: "center",
               }}
             >
-              Rise from Web2 to Onchain Heaven
+              Play Nimbus Ascent
             </span>
           </div>
         )}

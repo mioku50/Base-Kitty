@@ -5,7 +5,9 @@ export const runtime = "edge";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
-  const score = searchParams.get("score") || "0";
+  const scoreParam = searchParams.get("score");
+  const hasScore = scoreParam !== null && scoreParam.trim() !== "";
+  const score = hasScore ? scoreParam : "0";
   const username = searchParams.get("username") || "Anonymous";
   const badges = (searchParams.get("badges") || "").split(",").filter(Boolean);
   const stage = Number(searchParams.get("stage") || "0");
@@ -100,44 +102,83 @@ export async function GET(req: NextRequest) {
           />
         </div>
 
-        {/* Score */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "baseline",
-            gap: "12px",
-            marginBottom: "16px",
-          }}
-        >
-          <span
+        {/* Score or app tagline */}
+        {hasScore ? (
+          <div
             style={{
-              fontSize: "72px",
-              fontWeight: 900,
-              background: "linear-gradient(90deg, #a78bfa, #60a5fa, #34d399)",
-              backgroundClip: "text",
-              color: "transparent",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              marginBottom: "16px",
             }}
           >
-            {Number(score).toLocaleString()}
-          </span>
-          <span style={{ fontSize: "32px", color: "rgba(255,255,255,0.7)" }}>
-            pts
-          </span>
-        </div>
-
-        {/* Username */}
-        <span
-          style={{
-            fontSize: "28px",
-            color: "rgba(255,255,255,0.8)",
-            marginBottom: "16px",
-          }}
-        >
-          by @{username}
-        </span>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: "12px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "72px",
+                  fontWeight: 900,
+                  background: "linear-gradient(90deg, #a78bfa, #60a5fa, #34d399)",
+                  backgroundClip: "text",
+                  color: "transparent",
+                }}
+              >
+                {Number(score).toLocaleString()}
+              </span>
+              <span style={{ fontSize: "32px", color: "rgba(255,255,255,0.7)" }}>
+                pts
+              </span>
+            </div>
+            <span
+              style={{
+                fontSize: "28px",
+                color: "rgba(255,255,255,0.8)",
+                marginTop: "2px",
+              }}
+            >
+              by @{username}
+            </span>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "8px",
+              marginBottom: "16px",
+              maxWidth: "860px",
+            }}
+          >
+            <span
+              style={{
+                fontSize: "44px",
+                fontWeight: 800,
+                color: "white",
+                textAlign: "center",
+              }}
+            >
+              Doodle Jump style Mini App for Farcaster
+            </span>
+            <span
+              style={{
+                fontSize: "30px",
+                color: "rgba(255,255,255,0.8)",
+                textAlign: "center",
+              }}
+            >
+              Rise from Web2 to Onchain Heaven
+            </span>
+          </div>
+        )}
 
         {/* Badges */}
-        {badges.length > 0 && (
+        {hasScore && badges.length > 0 && (
           <div
             style={{
               display: "flex",

@@ -12,10 +12,51 @@ interface Props {
 }
 
 type HexAddress = `0x${string}`;
+const BASE_CHAIN_ID = "0x2105";
+const GM_CALL_DATA = "0x";
+const GM_STATUS_POLL_INTERVAL_MS = 900;
+const GM_STATUS_POLL_ATTEMPTS = 10;
 
 function asHexAddress(value: string | undefined): HexAddress | null {
   if (!value) return null;
   return /^0x[a-fA-F0-9]{40}$/.test(value) ? (value as HexAddress) : null;
+}
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function normalizeProviderError(err: unknown): string {
+  if (err instanceof Error && err.message) return err.message;
+  if (typeof err === "string") return err;
+  if (err && typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    if (typeof e.message === "string") return e.message;
+    const cause = e.cause as Record<string, unknown> | undefined;
+    if (cause && typeof cause.message === "string") return cause.message;
+  }
+  return "Failed to send gm transaction";
+}
+
+function extractTxHashFromCallsStatus(status: unknown): string | null {
+  if (!status || typeof status !== "object") return null;
+  const root = status as Record<string, unknown>;
+  const receipts = Array.isArray(root.receipts) ? (root.receipts as unknown[]) : [];
+
+  for (const receipt of receipts) {
+    if (!receipt || typeof receipt !== "object") continue;
+    const r = receipt as Record<string, unknown>;
+    const hash =
+      r.transactionHash ??
+      r.txHash ??
+      r.hash;
+    if (typeof hash === "string" && hash.startsWith("0x")) return hash;
+  }
+
+  const rootHash = root.transactionHash ?? root.txHash ?? root.hash;
+  return typeof rootHash === "string" && rootHash.startsWith("0x") ? rootHash : null;
 }
 
 export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
@@ -23,6 +64,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const [gmStatus, setGmStatus] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [gmError, setGmError] = useState<string>("");
   const [gmTxHash, setGmTxHash] = useState<string>("");
+  const [gmCallsId, setGmCallsId] = useState<string>("");
   const isGmPending = gmStatus === "pending";
   const gmTargetAddress = useMemo(
     () => process.env.NEXT_PUBLIC_GM_TARGET_ADDRESS?.trim() || "",
@@ -33,6 +75,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     setGmStatus("pending");
     setGmError("");
     setGmTxHash("");
+    setGmCallsId("");
 
     try {
       const provider = await sdk.wallet.getEthereumProvider();
@@ -48,13 +91,12 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         throw new Error("No wallet account is connected");
       }
 
-      const baseChainId = "0x2105";
       const chainId = (await provider.request({ method: "eth_chainId" })) as string;
-      if (chainId !== baseChainId) {
+      if (chainId !== BASE_CHAIN_ID) {
         try {
           await provider.request({
             method: "wallet_switchEthereumChain",
-            params: [{ chainId: baseChainId }],
+            params: [{ chainId: BASE_CHAIN_ID }],
           });
         } catch {
           // Continue and let the wallet decide if tx can be sent on current chain.
@@ -62,23 +104,81 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       }
 
       const to = asHexAddress(gmTargetAddress) || from;
-      const txHash = (await provider.request({
-        method: "eth_sendTransaction",
-        params: [
-          {
-            from,
-            to,
-            value: "0x0",
-            // "gm" marker in calldata
-            data: "0x676d",
-          },
-        ],
-      })) as string;
+      let txHash = "";
+      let callsId = "";
+
+      try {
+        // Prefer EIP-5792 for Base smart wallets (Base App).
+        const maybeCallsId = (await provider.request({
+          method: "wallet_sendCalls",
+          params: [
+            {
+              version: "1.0",
+              chainId: BASE_CHAIN_ID,
+              from,
+              calls: [
+                {
+                  to,
+                  value: "0x0",
+                  data: GM_CALL_DATA,
+                },
+              ],
+            },
+          ],
+        })) as string;
+
+        if (typeof maybeCallsId !== "string" || maybeCallsId.length === 0) {
+          throw new Error("wallet_sendCalls returned an empty id");
+        }
+
+        callsId = maybeCallsId;
+
+        for (let attempt = 0; attempt < GM_STATUS_POLL_ATTEMPTS; attempt++) {
+          const status = await provider.request({
+            method: "wallet_getCallsStatus",
+            params: [callsId],
+          });
+
+          const resolvedTxHash = extractTxHashFromCallsStatus(status);
+          if (resolvedTxHash) {
+            txHash = resolvedTxHash;
+            break;
+          }
+
+          if (status && typeof status === "object") {
+            const s = status as Record<string, unknown>;
+            const statusText = String(s.status ?? s.state ?? "").toLowerCase();
+            if (
+              statusText.includes("fail") ||
+              statusText.includes("revert") ||
+              statusText.includes("reject")
+            ) {
+              throw new Error("gm transaction was rejected");
+            }
+          }
+
+          await delay(GM_STATUS_POLL_INTERVAL_MS);
+        }
+      } catch {
+        // Fallback for clients that do not support wallet_sendCalls.
+        txHash = (await provider.request({
+          method: "eth_sendTransaction",
+          params: [
+            {
+              from,
+              to,
+              value: "0x0",
+              data: GM_CALL_DATA,
+            },
+          ],
+        })) as string;
+      }
 
       setGmTxHash(txHash);
+      setGmCallsId(callsId);
       setGmStatus("success");
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to send gm transaction";
+      const message = normalizeProviderError(err);
       setGmError(message);
       setGmStatus("error");
     }
@@ -198,14 +298,27 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         </button>
 
         {gmStatus === "success" && (
-          <a
-            href={`https://basescan.org/tx/${gmTxHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 text-emerald-300 text-xs underline underline-offset-2"
-          >
-            gm tx sent ✓ view on BaseScan
-          </a>
+          <>
+            {gmTxHash ? (
+              <a
+                href={`https://basescan.org/tx/${gmTxHash}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-2 text-emerald-300 text-xs underline underline-offset-2"
+              >
+                gm tx sent ✓ view on BaseScan
+              </a>
+            ) : (
+              <p className="mt-2 text-emerald-300 text-xs text-center">
+                gm request sent ✓ check wallet activity
+              </p>
+            )}
+            {!gmTxHash && gmCallsId && (
+              <p className="mt-1 text-emerald-200/80 text-[10px] text-center break-all">
+                call id: {gmCallsId}
+              </p>
+            )}
+          </>
         )}
 
         {gmStatus === "error" && (

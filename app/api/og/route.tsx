@@ -259,7 +259,7 @@ export async function GET(req: NextRequest) {
             style={{ objectFit: "contain" }}
           />
           <span style={{ fontSize: "22px", fontWeight: 700, color: "white" }}>
-            Play in Farcaster
+            Play in BaseApp
           </span>
         </div>
       </div>

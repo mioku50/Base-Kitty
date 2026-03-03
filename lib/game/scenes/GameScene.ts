@@ -14,6 +14,8 @@ const HOLD_MOVE_SPEED = 260;
 const SHOOT_BUTTON_Y_RATIO = 0.56;
 const PRAYER_SCORE_MULTIPLIER = 2;
 const PRAYER_JUMP_MULTIPLIER = 2;
+const SOCIAL_CLOUD_SPAWN_CHANCE = 0.025;
+const SOCIAL_CLOUD_MIN_PLATFORM_GAP = 20;
 const ENEMY_PATROL_SPEED = 55;
 const CANDLE_SPEED = 350;
 const CANDLE_INTERVAL_BASE = 2500;  // ms
@@ -72,6 +74,7 @@ export default class GameScene extends Phaser.Scene {
   private isPaused = false;
   private cloudsSocial!: Phaser.Physics.Arcade.StaticGroup;
   private socialFriends: SocialFriend[] = [];
+  private lastSocialCloudPlatform = -999;
   private avatarLoadQueued = new Set<string>();
   private boostPopupText?: Phaser.GameObjects.Text;
   private soundEnabled = true;
@@ -129,6 +132,7 @@ export default class GameScene extends Phaser.Scene {
     this.isPaused = false;
     this.moveDir = 0;
     this.pointerDown = false;
+    this.lastSocialCloudPlatform = -999;
   }
 
   create() {
@@ -703,9 +707,16 @@ export default class GameScene extends Phaser.Scene {
     // Spawn enemy or collectable on normal platforms
     this.platformsSpawned++;
 
-    // ~8% chance of a social cloud (friend avatar boost cloud)
-    if (this.socialFriends.length > 0 && this.platformsSpawned > 8 && Math.random() < 0.08) {
+    // Rare "social cloud" event with a minimum platform gap.
+    const canSpawnSocialCloud =
+      this.socialFriends.length > 0 &&
+      this.platformsSpawned > 12 &&
+      this.platformsSpawned - this.lastSocialCloudPlatform >= SOCIAL_CLOUD_MIN_PLATFORM_GAP &&
+      Math.random() < SOCIAL_CLOUD_SPAWN_CHANCE;
+
+    if (canSpawnSocialCloud) {
       this.spawnSocialCloud(x, y - spacing / 2);
+      this.lastSocialCloudPlatform = this.platformsSpawned;
     } else if (platformKey === "cloud-normal" && Math.random() < enemyChance && this.platformsSpawned > 5) {
       this.spawnEnemy(x, y, dw);
     } else if (platformKey === "cloud-normal" && Math.random() < collectableChance) {
@@ -769,8 +780,9 @@ export default class GameScene extends Phaser.Scene {
 
   // ─── Score helpers ────────────────────────────────────────────────────────
 
-  private addScore(pts: number) {
-    const scoreMultiplier = this.prayerBoostMs > 0 ? PRAYER_SCORE_MULTIPLIER : 1;
+  private addScore(pts: number, applyPrayerMultiplier = true) {
+    const scoreMultiplier =
+      applyPrayerMultiplier && this.prayerBoostMs > 0 ? PRAYER_SCORE_MULTIPLIER : 1;
     this.score += Math.max(0, Math.floor(pts * scoreMultiplier));
     this.scoreText.setText(`Score: ${this.score}`);
     this.checkBackgroundStage();
@@ -1007,7 +1019,8 @@ export default class GameScene extends Phaser.Scene {
     if (this.player.y < this.highestY) {
       const deltaY = this.highestY - this.player.y;
       this.highestY = this.player.y;
-      this.addScore(Math.floor(deltaY * 0.1));
+      // Keep base height scoring stable regardless of temporary score multipliers.
+      this.addScore(Math.floor(deltaY * 0.1), false);
     }
 
     // Generate more platforms ahead

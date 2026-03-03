@@ -50,7 +50,7 @@ export default class BootScene extends Phaser.Scene {
     this.load.image("fud-bear",      "/assets/Bear Market.PNG");
     this.load.image("bg-stage0",     "/assets/Level 1 ,Start.PNG");
     this.load.image("bg-stage1",     "/assets/LeVel 2.PNG");
-    this.load.image("bg-stage2",     "/assets/Level 3+.PNG");
+    this.load.image("bg-stage2",     "/assets/level-3.png");
   }
 
   create() {

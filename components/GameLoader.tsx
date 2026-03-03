@@ -21,12 +21,6 @@ type Screen = "entry" | "playing" | "gameover" | "leaderboard";
 const SOCIAL_FETCH_TIMEOUT_MS = 8000;
 const MAX_SOCIAL_FRIENDS = 24;
 
-interface LeaderboardFallbackEntry {
-  fid: number;
-  username?: string;
-  pfpUrl?: string;
-}
-
 function normalizeSocialFriends(friends: SocialFriend[]): SocialFriend[] {
   const byFid = new Map<number, SocialFriend>();
   friends.forEach((friend) => {
@@ -49,8 +43,13 @@ export default function GameLoader() {
   const [gameKey, setGameKey] = useState(0);
   const [socialFriends, setSocialFriends] = useState<SocialFriend[]>([]);
 
-  // Fetch social friends (following first, then fallback to all-time top users).
+  // Fetch social friends strictly from user's following list.
   useEffect(() => {
+    if (!user) {
+      setSocialFriends([]);
+      return;
+    }
+
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), SOCIAL_FETCH_TIMEOUT_MS);
     let cancelled = false;
@@ -70,49 +69,35 @@ export default function GameLoader() {
     const run = async () => {
       const pool: SocialFriend[] = [];
 
-      if (user) {
-        const friendsData = await fetchJson<{ fids?: number[] }>(
-          `/api/friends?fid=${user.fid}`
-        );
-        const fids = Array.isArray(friendsData?.fids)
-          ? friendsData.fids.filter((fid): fid is number => typeof fid === "number").slice(0, MAX_SOCIAL_FRIENDS)
-          : [];
+      const friendsData = await fetchJson<{ fids?: number[] }>(
+        `/api/friends?fid=${user.fid}`
+      );
+      const fids = Array.isArray(friendsData?.fids)
+        ? friendsData.fids
+            .filter((fid): fid is number => typeof fid === "number")
+            .slice(0, MAX_SOCIAL_FRIENDS)
+        : [];
 
-        if (fids.length > 0) {
-          const profilesData = await fetchJson<{ users?: SocialFriend[] }>(
-            `/api/profiles?fids=${fids.join(",")}`
-          );
-          if (Array.isArray(profilesData?.users)) {
-            pool.push(...profilesData.users.filter((u) => u.fid !== user.fid));
-          }
-        }
-      }
-
-      // Fallback source: top users from all-time leaderboard.
-      if (pool.length < 6) {
-        const scoreData = await fetchJson<{ leaderboard?: LeaderboardFallbackEntry[] }>(
-          "/api/score?mode=alltime"
+      if (fids.length > 0) {
+        const profilesData = await fetchJson<{ users?: SocialFriend[] }>(
+          `/api/profiles?fids=${fids.join(",")}`
         );
-        if (Array.isArray(scoreData?.leaderboard)) {
-          scoreData.leaderboard.forEach((entry) => {
-            if (!entry || typeof entry.fid !== "number" || !entry.pfpUrl) return;
-            if (user && entry.fid === user.fid) return;
-            pool.push({
-              fid: entry.fid,
-              username: entry.username || `fid:${entry.fid}`,
-              pfpUrl: entry.pfpUrl,
-            });
-          });
+        if (Array.isArray(profilesData?.users)) {
+          pool.push(...profilesData.users.filter((u) => u.fid !== user.fid));
         }
       }
 
       const normalized = normalizeSocialFriends(pool);
-      if (!cancelled && normalized.length > 0) {
+      if (!cancelled) {
         setSocialFriends(normalized);
       }
     };
 
-    run().catch(() => {});
+    run().catch(() => {
+      if (!cancelled) {
+        setSocialFriends([]);
+      }
+    });
 
     return () => {
       cancelled = true;

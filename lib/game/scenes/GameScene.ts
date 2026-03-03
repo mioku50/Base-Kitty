@@ -613,15 +613,26 @@ export default class GameScene extends Phaser.Scene {
       platformDisplayWidth = 130;
       fragileChance = 0;
       enemyChance = 0.10 * ENEMY_SPAWN_MULTIPLIER;
-      collectableChance = 0.10;  // was 0.40, reduced 4x
-    } else if (this.score < 1500) {
+      // Stage 0: базовый
+      collectableChance = 0.10;
+    } else if (this.score < 1000) {
       // Stage 1: Medium
       spacingMin = 70;
       spacingMax = 110;
       platformDisplayWidth = 120;
       fragileChance = 0.12;
       enemyChance = 0.15 * ENEMY_SPAWN_MULTIPLIER;
-      collectableChance = 0.07;  // was 0.28, reduced 4x
+      // Stage 1: ×1.5 от базового
+      collectableChance = 0.15;
+    } else if (this.score < 1500) {
+      // Stage 1+: Medium (continued)
+      spacingMin = 70;
+      spacingMax = 110;
+      platformDisplayWidth = 120;
+      fragileChance = 0.12;
+      enemyChance = 0.15 * ENEMY_SPAWN_MULTIPLIER;
+      // Stage 1+: ×2 от базового
+      collectableChance = 0.20;
     } else {
       // Stage 2: Hard
       spacingMin = 90;
@@ -629,7 +640,8 @@ export default class GameScene extends Phaser.Scene {
       platformDisplayWidth = 100;
       fragileChance = 0.20;
       enemyChance = 0.22 * ENEMY_SPAWN_MULTIPLIER;
-      collectableChance = 0.055; // was 0.22, reduced 4x
+      // Stage 2: сохраняем ×2 (не уменьшать на хардкоре)
+      collectableChance = 0.20;
     }
 
     // Enemy spawn density ramps up by +20% every 500 score.
@@ -1007,7 +1019,7 @@ export default class GameScene extends Phaser.Scene {
     if (this.player.y < this.highestY) {
       const deltaY = this.highestY - this.player.y;
       this.highestY = this.player.y;
-      this.addScore(Math.floor(deltaY * 0.1));
+      this.addScore(Math.floor(deltaY * 0.3));
     }
 
     // Generate more platforms ahead

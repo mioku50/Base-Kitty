@@ -615,24 +615,15 @@ export default class GameScene extends Phaser.Scene {
       enemyChance = 0.10 * ENEMY_SPAWN_MULTIPLIER;
       // Stage 0: базовый
       collectableChance = 0.10;
-    } else if (this.score < 1000) {
+    } else if (this.score < 1500) {
       // Stage 1: Medium
       spacingMin = 70;
       spacingMax = 110;
       platformDisplayWidth = 120;
       fragileChance = 0.12;
       enemyChance = 0.15 * ENEMY_SPAWN_MULTIPLIER;
-      // Stage 1: ×1.5 от базового
-      collectableChance = 0.15;
-    } else if (this.score < 1500) {
-      // Stage 1+: Medium (continued)
-      spacingMin = 70;
-      spacingMax = 110;
-      platformDisplayWidth = 120;
-      fragileChance = 0.12;
-      enemyChance = 0.15 * ENEMY_SPAWN_MULTIPLIER;
-      // Stage 1+: ×2 от базового
-      collectableChance = 0.20;
+      // Stage 1: ×1.5 от базового; Stage 1+: ×2 от базового
+      collectableChance = this.score < 1000 ? 0.15 : 0.20;
     } else {
       // Stage 2: Hard
       spacingMin = 90;

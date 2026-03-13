@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  buildDailyTaskNonce,
   buildSignedClaim,
   calculateClaimEconomics,
   estimateClaimGas,
-  findFirstAvailableInviteNonce,
   getCurrentGasPriceWei,
   getNextClaimAt,
   isAddressLike,
+  isClaimNonceUsed,
   isRunWithin24Hours,
+  nextUtcDayStartEpochSeconds,
 } from "../../../../lib/server/claim";
 import { verifyQuickAuthFromRequest } from "../../../../lib/server/farcasterAuth";
 import {
@@ -21,7 +23,6 @@ export const runtime = "nodejs";
 type TaskReason =
   | "eligible"
   | "play_required"
-  | "streak_required"
   | "wallet_required"
   | "cooldown"
   | "gas_too_high"
@@ -60,13 +61,6 @@ export async function GET(req: NextRequest) {
       LIMIT 1
     `) as Array<{ last_played_at: number | string | null }>;
 
-    const streakRows = (await sql`
-      SELECT streak_days
-      FROM player_streaks
-      WHERE fid = ${auth.fid}
-      LIMIT 1
-    `) as Array<{ streak_days: number | string | null }>;
-
     const referralRows = (await sql`
       SELECT referred_fid
       FROM referrals
@@ -77,15 +71,14 @@ export async function GET(req: NextRequest) {
 
     const lastPlayedAt = Number(scoreRows[0]?.last_played_at ?? 0) || null;
     const runEligible = isRunWithin24Hours(lastPlayedAt);
-    const streakDays = Number(streakRows[0]?.streak_days ?? 0) || 0;
-    const referredFids = referralRows
+    const referredCount = referralRows
       .map((row) => Number(row.referred_fid))
-      .filter((fid) => Number.isInteger(fid) && fid > 0);
+      .filter((fid) => Number.isInteger(fid) && fid > 0).length;
 
     const walletAddressParam = req.nextUrl.searchParams.get("address")?.trim();
     const walletAddress = isAddressLike(walletAddressParam) ? walletAddressParam : null;
 
-    const streak: TaskStatus = {
+    const share: TaskStatus = {
       eligible: false,
       reason: "play_required",
       nextClaimAt: null,
@@ -94,40 +87,38 @@ export async function GET(req: NextRequest) {
     };
 
     if (!runEligible) {
-      streak.reason = "play_required";
-    } else if (streakDays < 2) {
-      streak.reason = "streak_required";
+      share.reason = "play_required";
     } else if (!walletAddress) {
-      streak.reason = "wallet_required";
+      share.reason = "wallet_required";
     } else {
       const nowSec = Math.floor(Date.now() / 1000);
-      const nextClaimAt = await getNextClaimAt(walletAddress, "streak");
-      streak.nextClaimAt = nextClaimAt;
+      const nextClaimAt = await getNextClaimAt(walletAddress, "share");
+      share.nextClaimAt = nextClaimAt;
 
       if (nextClaimAt > nowSec) {
-        streak.reason = "cooldown";
+        share.reason = "cooldown";
       } else {
         try {
-          const signedClaim = await buildSignedClaim(walletAddress, "streak");
+          const signedClaim = await buildSignedClaim(walletAddress, "share");
           const gasEstimate = await estimateClaimGas(walletAddress, signedClaim.calldata);
           const gasPriceWei = await getCurrentGasPriceWei();
           const economics = await calculateClaimEconomics({
-            task: "streak",
+            task: "share",
             gasEstimate,
             gasPriceWei,
           });
 
-          streak.rewardUsd = economics.rewardUsd;
-          streak.estimatedGasUsd = economics.estimatedGasUsd;
+          share.rewardUsd = economics.rewardUsd;
+          share.estimatedGasUsd = economics.estimatedGasUsd;
 
           if (economics.estimatedGasUsd >= economics.rewardUsd) {
-            streak.reason = "gas_too_high";
+            share.reason = "gas_too_high";
           } else {
-            streak.eligible = true;
-            streak.reason = "eligible";
+            share.eligible = true;
+            share.reason = "eligible";
           }
         } catch {
-          streak.reason = "price_unavailable";
+          share.reason = "price_unavailable";
         }
       }
     }
@@ -140,20 +131,19 @@ export async function GET(req: NextRequest) {
       estimatedGasUsd: null,
     };
 
-    let availableInvites = 0;
-    if (referredFids.length === 0) {
+    if (referredCount <= 0) {
       invite.reason = "invite_required";
     } else if (!walletAddress) {
       invite.reason = "wallet_required";
     } else {
-      const available = await findFirstAvailableInviteNonce(auth.fid, referredFids);
-      availableInvites = available.availableCount;
-
-      if (!available.nonce || available.availableCount <= 0) {
-        invite.reason = "invite_required";
+      const inviteNonce = buildDailyTaskNonce("invite", auth.fid);
+      const usedToday = await isClaimNonceUsed(inviteNonce);
+      if (usedToday) {
+        invite.reason = "cooldown";
+        invite.nextClaimAt = nextUtcDayStartEpochSeconds();
       } else {
         try {
-          const signedClaim = await buildSignedClaim(walletAddress, "invite", available.nonce);
+          const signedClaim = await buildSignedClaim(walletAddress, "invite", inviteNonce);
           const gasEstimate = await estimateClaimGas(walletAddress, signedClaim.calldata);
           const gasPriceWei = await getCurrentGasPriceWei();
           const economics = await calculateClaimEconomics({
@@ -181,10 +171,9 @@ export async function GET(req: NextRequest) {
       fid: auth.fid,
       runEligible,
       lastPlayedAt,
-      streakDays,
-      streak,
+      share,
       invite,
-      availableInvites,
+      referredCount,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Task status unavailable";

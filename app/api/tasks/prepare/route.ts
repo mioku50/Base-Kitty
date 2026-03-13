@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  buildDailyTaskNonce,
   buildSignedClaim,
   calculateClaimEconomics,
   claimCooldownSeconds,
   estimateClaimGas,
-  findFirstAvailableInviteNonce,
   getBaseChainId,
   getClaimTxTarget,
   getCurrentGasPriceWei,
@@ -12,7 +12,9 @@ import {
   getTaskRewardAmountRaw,
   getTaskRewardLabel,
   isAddressLike,
+  isClaimNonceUsed,
   isRunWithin24Hours,
+  nextUtcDayStartEpochSeconds,
   type BlessingTask,
 } from "../../../../lib/server/claim";
 import { verifyQuickAuthFromRequest } from "../../../../lib/server/farcasterAuth";
@@ -26,7 +28,6 @@ export const runtime = "nodejs";
 
 type PrepareReason =
   | "play_required"
-  | "streak_required"
   | "cooldown"
   | "gas_too_high"
   | "price_unavailable"
@@ -57,7 +58,7 @@ function taskError(
 }
 
 function asTask(value: unknown): BlessingTask | null {
-  if (value === "streak" || value === "invite") return value;
+  if (value === "share" || value === "invite") return value;
   return null;
 }
 
@@ -77,7 +78,7 @@ export async function POST(req: NextRequest) {
   const taskRaw = body && typeof body === "object" ? (body as Record<string, unknown>).task : null;
   const task = asTask(taskRaw);
   if (!task) {
-    return taskError("task_invalid", "Task must be 'streak' or 'invite'", 400);
+    return taskError("task_invalid", "Task must be 'share' or 'invite'", 400);
   }
 
   const walletRaw =
@@ -102,13 +103,6 @@ export async function POST(req: NextRequest) {
       LIMIT 1
     `) as Array<{ last_played_at: number | string | null }>;
 
-    const streakRows = (await sql`
-      SELECT streak_days
-      FROM player_streaks
-      WHERE fid = ${auth.fid}
-      LIMIT 1
-    `) as Array<{ streak_days: number | string | null }>;
-
     const referralRows = (await sql`
       SELECT referred_fid
       FROM referrals
@@ -118,30 +112,24 @@ export async function POST(req: NextRequest) {
     `) as Array<{ referred_fid: number | string }>;
 
     const lastPlayedAt = Number(scoreRows[0]?.last_played_at ?? 0) || null;
-    const streakDays = Number(streakRows[0]?.streak_days ?? 0) || 0;
-    const referredFids = referralRows
+    const referredCount = referralRows
       .map((row) => Number(row.referred_fid))
-      .filter((fid) => Number.isInteger(fid) && fid > 0);
+      .filter((fid) => Number.isInteger(fid) && fid > 0).length;
 
     let nonceOverride: bigint | undefined;
 
-    if (task === "streak") {
+    if (task === "share") {
       if (!isRunWithin24Hours(lastPlayedAt)) {
         return taskError("play_required", "Play a run first", 409, {
-          rewardLabel: getTaskRewardLabel("streak"),
+          rewardLabel: getTaskRewardLabel("share"),
           lastPlayedAt,
-        });
-      }
-      if (streakDays < 2) {
-        return taskError("streak_required", "Build a 2-day streak first", 409, {
-          streakDays,
         });
       }
 
       const nowSec = Math.floor(Date.now() / 1000);
-      const nextClaimAt = await getNextClaimAt(walletAddress, "streak");
+      const nextClaimAt = await getNextClaimAt(walletAddress, "share");
       if (nextClaimAt > nowSec) {
-        return taskError("cooldown", "Streak claim is on cooldown", 409, {
+        return taskError("cooldown", "Share reward is on cooldown", 409, {
           nextClaimAt,
           cooldownSeconds: claimCooldownSeconds(),
         });
@@ -149,18 +137,20 @@ export async function POST(req: NextRequest) {
     }
 
     if (task === "invite") {
-      if (referredFids.length === 0) {
+      if (referredCount <= 0) {
         return taskError("invite_required", "Invite a friend who plays at least one run", 409);
       }
 
-      const available = await findFirstAvailableInviteNonce(auth.fid, referredFids);
-      if (!available.nonce || available.availableCount <= 0) {
-        return taskError("invite_required", "No unclaimed invite rewards left", 409, {
-          availableInvites: 0,
+      const inviteNonce = buildDailyTaskNonce("invite", auth.fid);
+      const usedToday = await isClaimNonceUsed(inviteNonce);
+      if (usedToday) {
+        return taskError("cooldown", "Invite reward already claimed today", 409, {
+          nextClaimAt: nextUtcDayStartEpochSeconds(),
+          cooldownSeconds: claimCooldownSeconds(),
         });
       }
 
-      nonceOverride = available.nonce;
+      nonceOverride = inviteNonce;
     }
 
     const signedClaim = await buildSignedClaim(walletAddress, task, nonceOverride);

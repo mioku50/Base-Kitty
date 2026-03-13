@@ -31,7 +31,6 @@ type ClaimStatusResponse = {
 type TaskReason =
   | "eligible"
   | "play_required"
-  | "streak_required"
   | "wallet_required"
   | "cooldown"
   | "gas_too_high"
@@ -47,9 +46,8 @@ type TaskStatus = {
 };
 
 type TasksStatusResponse = {
-  streakDays: number;
-  availableInvites: number;
-  streak: TaskStatus;
+  referredCount: number;
+  share: TaskStatus;
   invite: TaskStatus;
 };
 
@@ -146,8 +144,6 @@ function taskStatusLabel(reason: TaskReason, nextClaimAt: number | null) {
       return "Claim now";
     case "play_required":
       return "Play a run first";
-    case "streak_required":
-      return "Need 2-day streak";
     case "wallet_required":
       return "Connect wallet";
     case "cooldown":
@@ -170,12 +166,14 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const [claimError, setClaimError] = useState("");
   const [claimTxHash, setClaimTxHash] = useState("");
   const [claimCallsId, setClaimCallsId] = useState("");
+  const [lastClaimTask, setLastClaimTask] = useState<"daily" | "share" | "invite" | null>(null);
   const [claimStatus, setClaimStatus] = useState<ClaimStatusResponse | null>(null);
   const [sharePending, setSharePending] = useState(false);
   const [taskMessage, setTaskMessage] = useState("");
   const [showBlessings, setShowBlessings] = useState(false);
   const [tasksStatus, setTasksStatus] = useState<TasksStatusResponse | null>(null);
-  const [taskClaimPending, setTaskClaimPending] = useState<"streak" | "invite" | null>(null);
+  const [taskClaimPending, setTaskClaimPending] = useState<"share" | "invite" | null>(null);
+  const [shareTaskPrimed, setShareTaskPrimed] = useState(false);
 
   const [showPinPrompt, setShowPinPrompt] = useState(false);
   const [pinPending, setPinPending] = useState(false);
@@ -394,6 +392,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     setClaimError("");
     setClaimTxHash("");
     setClaimCallsId("");
+    setLastClaimTask("daily");
 
     try {
       const provider = await sdk.wallet.getEthereumProvider();
@@ -455,10 +454,11 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   }, [fetchClaimStatus, fetchTasksStatus, sendClaimTransaction]);
 
   const handleTaskClaim = useCallback(
-    async (task: "streak" | "invite") => {
+    async (task: "share" | "invite") => {
       setTaskClaimPending(task);
       setTaskMessage("");
       setClaimError("");
+      setLastClaimTask(task);
 
       try {
         const provider = await sdk.wallet.getEthereumProvider();
@@ -493,7 +493,10 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         const { txHash, callsId } = await sendClaimTransaction(provider, from, prepared);
         setClaimTxHash(txHash);
         setClaimCallsId(callsId);
-        setTaskMessage(task === "streak" ? "Streak reward claimed ✓" : "Invite reward claimed ✓");
+        if (task === "share") {
+          setShareTaskPrimed(false);
+        }
+        setTaskMessage(task === "share" ? "Share reward claimed ✓" : "Invite reward claimed ✓");
         await Promise.all([fetchClaimStatus(), fetchTasksStatus()]);
       } catch (err) {
         setTaskMessage(normalizeProviderError(err));
@@ -567,6 +570,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   }, []);
 
   const hasClaimSuccess = Boolean(claimTxHash || claimCallsId);
+  const hasDailyClaimSuccess = hasClaimSuccess && lastClaimTask === "daily";
 
   const blessingOgUrl = useMemo(() => {
     if (typeof window === "undefined") return "";
@@ -618,13 +622,15 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       const scoreCardUrl = appUrl ? `${appUrl}/api/og?${scoreParams.toString()}` : "";
       const text = `😺 My best score in Nimbus Ascent is ${bestScore.toLocaleString()} pts.`;
       await composeCast(text, { embeds: [appUrl, scoreCardUrl].filter(Boolean) });
-      setTaskMessage("Score card opened in composer ✓ (+1 $Degen task)");
+      setShareTaskPrimed(true);
+      setTaskMessage("Score card shared ✓ now tap Claim +1 $Degen");
+      await fetchTasksStatus();
     } catch (err) {
       setTaskMessage(normalizeProviderError(err));
     } finally {
       setSharePending(false);
     }
-  }, [composeCast, sharePending, user]);
+  }, [composeCast, fetchTasksStatus, sharePending, user]);
 
   const handleInviteFriendTask = useCallback(async () => {
     if (!user) {
@@ -639,36 +645,42 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       const inviteUrl = appUrl ? `${appUrl}/?ref=${user.fid}` : "";
       const text = "😇 Join Nimbus Ascent and claim Daily Blessings with me. +2 $Degen invite task.";
       await composeCast(text, { embeds: [inviteUrl || appUrl].filter(Boolean) });
-      setTaskMessage("Invite opened in composer ✓");
+      setTaskMessage("Invite shared ✓ after friend plays, tap Claim +2 $Degen");
+      await fetchTasksStatus();
     } catch (err) {
       setTaskMessage(normalizeProviderError(err));
     } finally {
       setSharePending(false);
     }
-  }, [composeCast, sharePending, user]);
+  }, [composeCast, fetchTasksStatus, sharePending, user]);
 
   const handleShowStreakTask = useCallback(() => {
-    setTaskMessage("Streak bonuses: +1 $Degen reward, rare drops and UI skins.");
+    setTaskMessage("Streak perks are active in gameplay (rare drops and UI skins).");
   }, []);
 
-  const streakTask = tasksStatus?.streak;
+  const shareTask = tasksStatus?.share;
   const inviteTask = tasksStatus?.invite;
-  const availableInvites = tasksStatus?.availableInvites ?? 0;
+  const referredCount = tasksStatus?.referredCount ?? 0;
 
-  const streakButtonText = useMemo(() => {
-    if (taskClaimPending === "streak") return "🔥 Claiming streak reward...";
-    if (!streakTask) return "🔥 Streak Blessing (+1 $Degen)";
-    if (streakTask.eligible) return "🔥 Claim Streak Bonus +1 $Degen";
-    return `🔥 ${taskStatusLabel(streakTask.reason, streakTask.nextClaimAt)}`;
-  }, [streakTask, taskClaimPending]);
+  const shareButtonHint = useMemo(() => {
+    if (!shareTask) return "Share score to claim +1 $Degen";
+    if (shareTask.eligible) return "Share score to claim +1 $Degen";
+    return taskStatusLabel(shareTask.reason, shareTask.nextClaimAt);
+  }, [shareTask]);
 
-  const inviteButtonText = useMemo(() => {
+  const shareClaimButtonText = useMemo(() => {
+    if (taskClaimPending === "share") return "Claiming +1...";
+    if (shareTask?.eligible) return "Claim +1 $Degen";
+    return taskStatusLabel(shareTask?.reason ?? "play_required", shareTask?.nextClaimAt ?? null);
+  }, [shareTask, taskClaimPending]);
+
+  const inviteClaimButtonText = useMemo(() => {
     if (taskClaimPending === "invite") return "🎁 Claiming invite reward...";
-    if (inviteTask?.eligible && availableInvites > 0) {
-      return `🎁 Claim Invite Reward +2 $Degen (${availableInvites})`;
+    if (inviteTask?.eligible && referredCount > 0) {
+      return "Claim +2 $Degen";
     }
-    return "🫂 Invite a friend (+2 $Degen)";
-  }, [availableInvites, inviteTask?.eligible, taskClaimPending]);
+    return taskStatusLabel(inviteTask?.reason ?? "invite_required", inviteTask?.nextClaimAt ?? null);
+  }, [inviteTask, referredCount, taskClaimPending]);
 
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center z-50 overflow-hidden">
@@ -768,23 +780,11 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
               </button>
 
               <button
-                onClick={() => {
-                  if (streakTask?.eligible) {
-                    handleTaskClaim("streak").catch(() => {
-                      // handled in callback
-                    });
-                    return;
-                  }
-                  if (streakTask) {
-                    setTaskMessage(taskStatusLabel(streakTask.reason, streakTask.nextClaimAt));
-                    return;
-                  }
-                  handleShowStreakTask();
-                }}
-                disabled={taskClaimPending !== null || !user}
+                onClick={handleShowStreakTask}
+                disabled={!user}
                 className="w-full rounded-2xl border border-purple-300/35 bg-purple-500/15 px-3 py-3 text-white text-sm font-bold disabled:opacity-50"
               >
-                {streakButtonText}
+                🔥 Streak Blessings Perks
               </button>
 
               <div className="rounded-xl border border-purple-300/20 bg-purple-500/10 px-3 py-2">
@@ -794,36 +794,82 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                 </p>
                 {tasksStatus && (
                   <p className="text-purple-200/80 text-[10px] mt-1">
-                    Streak: {tasksStatus.streakDays} day(s) • Invite rewards ready: {availableInvites}
+                    Share reward: {shareButtonHint} • Invites referred: {referredCount}
                   </p>
                 )}
               </div>
 
-              <button
-                onClick={handleShareBestScoreTask}
-                disabled={!user || sharePending}
-                className="w-full rounded-2xl border border-cyan-300/35 bg-cyan-500/15 px-3 py-3 text-white text-sm font-bold disabled:opacity-50"
-              >
-                💙 +1 $Degen • Share score card
-              </button>
+              <div className="rounded-xl border border-cyan-300/20 bg-cyan-500/10 px-3 py-3">
+                <p className="text-cyan-100 text-xs font-bold mb-2">💙 Share score card (+1 $Degen)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleShareBestScoreTask}
+                    disabled={!user || sharePending || taskClaimPending !== null}
+                    className="rounded-xl border border-cyan-300/30 bg-cyan-500/20 px-2 py-2 text-white text-xs font-bold disabled:opacity-50"
+                  >
+                    {sharePending ? "Sharing..." : "Share"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleTaskClaim("share").catch(() => {
+                        // handled in callback
+                      });
+                    }}
+                    disabled={
+                      !user ||
+                      !shareTaskPrimed ||
+                      !shareTask?.eligible ||
+                      sharePending ||
+                      taskClaimPending !== null
+                    }
+                    className="rounded-xl border border-emerald-300/30 bg-emerald-500/20 px-2 py-2 text-white text-xs font-bold disabled:opacity-50"
+                  >
+                    {shareClaimButtonText}
+                  </button>
+                </div>
+                <p className="text-cyan-200/80 text-[10px] mt-2">
+                  {shareTaskPrimed
+                    ? "Shared in this session. You can claim when backend says eligible."
+                    : "Step 1: Share, Step 2: Claim reward."}
+                </p>
+              </div>
 
-              <button
-                onClick={() => {
-                  if (inviteTask?.eligible && availableInvites > 0) {
-                    handleTaskClaim("invite").catch(() => {
-                      // handled in callback
-                    });
-                    return;
-                  }
-                  handleInviteFriendTask().catch(() => {
-                    // handled in callback
-                  });
-                }}
-                disabled={!user || sharePending || taskClaimPending !== null}
-                className="w-full rounded-2xl border border-blue-300/35 bg-blue-500/15 px-3 py-3 text-white text-sm font-bold disabled:opacity-50"
-              >
-                {inviteButtonText}
-              </button>
+              <div className="rounded-xl border border-blue-300/20 bg-blue-500/10 px-3 py-3">
+                <p className="text-blue-100 text-xs font-bold mb-2">🫂 Invite a friend (+2 $Degen)</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => {
+                      handleInviteFriendTask().catch(() => {
+                        // handled in callback
+                      });
+                    }}
+                    disabled={!user || sharePending || taskClaimPending !== null}
+                    className="rounded-xl border border-blue-300/30 bg-blue-500/20 px-2 py-2 text-white text-xs font-bold disabled:opacity-50"
+                  >
+                    {sharePending ? "Opening..." : "Invite"}
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleTaskClaim("invite").catch(() => {
+                        // handled in callback
+                      });
+                    }}
+                    disabled={
+                      !user ||
+                      !inviteTask?.eligible ||
+                      referredCount <= 0 ||
+                      sharePending ||
+                      taskClaimPending !== null
+                    }
+                    className="rounded-xl border border-emerald-300/30 bg-emerald-500/20 px-2 py-2 text-white text-xs font-bold disabled:opacity-50"
+                  >
+                    {inviteClaimButtonText}
+                  </button>
+                </div>
+                <p className="text-blue-200/80 text-[10px] mt-2">
+                  Referred players detected: {referredCount}
+                </p>
+              </div>
             </div>
 
             {taskMessage && (
@@ -908,6 +954,28 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           😼 Leaderboard
         </button>
 
+        {(claimTxHash || claimCallsId) && (
+          <div className="w-full mb-3 rounded-xl border border-emerald-300/35 bg-emerald-500/10 px-3 py-2">
+            {claimTxHash ? (
+              <p className="text-emerald-200 text-xs text-center">
+                ✅ Reward transaction sent:{" "}
+                <a
+                  href={`https://basescan.org/tx/${claimTxHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline underline-offset-2"
+                >
+                  open on BaseScan
+                </a>
+              </p>
+            ) : (
+              <p className="text-emerald-200 text-[11px] text-center break-all">
+                ✅ Transaction submitted (call id): {claimCallsId}
+              </p>
+            )}
+          </div>
+        )}
+
         <button
           onClick={handleClaim}
           disabled={claimDisabled}
@@ -920,7 +988,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           Play once per day and claim your angel reward
         </p>
 
-        {hasClaimSuccess && (
+        {hasDailyClaimSuccess && (
           <div className="w-full mt-3 rounded-2xl overflow-hidden border border-cyan-300/35 bg-gradient-to-br from-[#19063b] via-[#0f2048] to-[#07233e] shadow-lg shadow-cyan-900/25">
             <div className="relative px-4 py-4">
               <div className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-cyan-300/20 blur-2xl" />
@@ -957,23 +1025,6 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
               {sharePending ? "Sharing..." : "Share Blessing Card 💙"}
             </button>
           </div>
-        )}
-
-        {claimTxHash && (
-          <a
-            href={`https://basescan.org/tx/${claimTxHash}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-2 text-emerald-300 text-xs underline underline-offset-2"
-          >
-            claim tx sent ✓ view on BaseScan
-          </a>
-        )}
-
-        {!claimTxHash && claimCallsId && (
-          <p className="mt-1 text-emerald-200/80 text-[10px] text-center break-all">
-            call id: {claimCallsId}
-          </p>
         )}
 
         {claimError && <p className="mt-2 text-red-300 text-xs text-center">{claimError}</p>}

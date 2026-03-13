@@ -16,16 +16,17 @@ const BASE_CHAIN_ID = 8453;
 const CLAIM_COOLDOWN_SECONDS = 24 * 60 * 60;
 const CLAIM_VOUCHER_TTL_SECONDS = 10 * 60;
 const PRICE_CACHE_MS = 5 * 60 * 1000;
-const DEFAULT_STREAK_REWARD_RAW = BigInt("1000000000000000000");
+const DEFAULT_SHARE_REWARD_RAW = BigInt("1000000000000000000");
 const DEFAULT_INVITE_REWARD_RAW = BigInt("2000000000000000000");
 
 const EIP712_NAME = "Nimbus Blessings";
 const EIP712_VERSION = "2";
 
-export type BlessingTask = "daily" | "streak" | "invite";
+export type BlessingTask = "daily" | "share" | "invite" | "streak";
 
 const TASK_ID = {
   daily: 0,
+  share: 1,
   streak: 1,
   invite: 2,
 } as const;
@@ -45,7 +46,7 @@ type ClaimConfig = {
   degenTokenAddress: Address;
   signerPrivateKey: `0x${string}`;
   dailyRewardAmountRaw: bigint;
-  streakRewardAmountRaw: bigint;
+  shareRewardAmountRaw: bigint;
   inviteRewardAmountRaw: bigint;
 };
 
@@ -128,9 +129,11 @@ function getConfig(): ClaimConfig {
     mustEnv("DAILY_BLESSING_AMOUNT_RAW"),
     "DAILY_BLESSING_AMOUNT_RAW"
   );
-  const streakRaw = parseRawAmount(
-    process.env.STREAK_BLESSING_AMOUNT_RAW?.trim() || String(DEFAULT_STREAK_REWARD_RAW),
-    "STREAK_BLESSING_AMOUNT_RAW"
+  const shareRaw = parseRawAmount(
+    process.env.SHARE_BLESSING_AMOUNT_RAW?.trim() ||
+      process.env.STREAK_BLESSING_AMOUNT_RAW?.trim() ||
+      String(DEFAULT_SHARE_REWARD_RAW),
+    "SHARE_BLESSING_AMOUNT_RAW"
   );
   const inviteRaw = parseRawAmount(
     process.env.INVITE_BLESSING_AMOUNT_RAW?.trim() || String(DEFAULT_INVITE_REWARD_RAW),
@@ -143,7 +146,7 @@ function getConfig(): ClaimConfig {
     degenTokenAddress: asAddress(mustEnv("DEGEN_TOKEN_ADDRESS"), "DEGEN_TOKEN_ADDRESS"),
     signerPrivateKey: asPrivateKey(mustEnv("CLAIM_SIGNER_PRIVATE_KEY")),
     dailyRewardAmountRaw: dailyRaw,
-    streakRewardAmountRaw: streakRaw,
+    shareRewardAmountRaw: shareRaw,
     inviteRewardAmountRaw: inviteRaw,
   };
 }
@@ -180,7 +183,7 @@ function getTaskId(task: BlessingTask) {
 
 function getTaskRewardRawFromConfig(config: ClaimConfig, task: BlessingTask) {
   if (task === "daily") return config.dailyRewardAmountRaw;
-  if (task === "streak") return config.streakRewardAmountRaw;
+  if (task === "share" || task === "streak") return config.shareRewardAmountRaw;
   return config.inviteRewardAmountRaw;
 }
 
@@ -222,12 +225,20 @@ export function isRunWithin24Hours(lastPlayedAtMs: number | null, nowMs = Date.n
   return nowMs - lastPlayedAtMs <= CLAIM_COOLDOWN_SECONDS * 1000;
 }
 
-export function buildInviteNonce(referrerFid: number, referredFid: number): bigint {
-  const prefix = BigInt(2) << BigInt(248);
-  const mask = (BigInt(1) << BigInt(120)) - BigInt(1);
-  const referrerPart = (BigInt(referrerFid) & mask) << BigInt(120);
-  const referredPart = BigInt(referredFid) & mask;
-  return prefix | referrerPart | referredPart;
+function currentUtcDayNumber(nowMs = Date.now()) {
+  return Math.floor(nowMs / 86400000);
+}
+
+export function buildDailyTaskNonce(task: "share" | "invite", fid: number, day = currentUtcDayNumber()): bigint {
+  const prefix = BigInt(task === "share" ? 11 : 12) << BigInt(248);
+  const dayPart = (BigInt(day) & ((BigInt(1) << BigInt(64)) - BigInt(1))) << BigInt(120);
+  const fidPart = BigInt(fid) & ((BigInt(1) << BigInt(120)) - BigInt(1));
+  return prefix | dayPart | fidPart;
+}
+
+export function nextUtcDayStartEpochSeconds(nowMs = Date.now()) {
+  const nextDayStartMs = (currentUtcDayNumber(nowMs) + 1) * 86400000;
+  return Math.floor(nextDayStartMs / 1000);
 }
 
 export async function isClaimNonceUsed(nonce: bigint): Promise<boolean> {
@@ -240,49 +251,6 @@ export async function isClaimNonceUsed(nonce: bigint): Promise<boolean> {
     functionName: "usedNonces",
     args: [nonce],
   });
-}
-
-export async function findFirstAvailableInviteNonce(
-  referrerFid: number,
-  referredFids: number[]
-): Promise<{ nonce: bigint | null; availableCount: number }> {
-  const filtered = [...new Set(referredFids.filter((fid) => Number.isInteger(fid) && fid > 0))].slice(
-    0,
-    64
-  );
-  if (filtered.length === 0) {
-    return { nonce: null, availableCount: 0 };
-  }
-
-  const config = getConfig();
-  const client = getPublicClient(config.baseRpcUrl);
-  const nonces = filtered.map((referredFid) => buildInviteNonce(referrerFid, referredFid));
-
-  const results = await client.multicall({
-    allowFailure: true,
-    contracts: nonces.map((nonce) => ({
-      address: config.claimContractAddress,
-      abi: claimAbi,
-      functionName: "usedNonces",
-      args: [nonce],
-    })),
-  });
-
-  let first: bigint | null = null;
-  let availableCount = 0;
-
-  results.forEach((result, index) => {
-    if (result.status !== "success") return;
-    const used = Boolean(result.result);
-    if (!used) {
-      availableCount += 1;
-      if (first === null) {
-        first = nonces[index] ?? null;
-      }
-    }
-  });
-
-  return { nonce: first, availableCount };
 }
 
 export async function getNextClaimAt(walletAddress: Address, task: BlessingTask = "daily"): Promise<number> {

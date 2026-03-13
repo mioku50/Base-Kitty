@@ -4,15 +4,14 @@ import {
   verifyAppKeyWithNeynar,
 } from "@farcaster/miniapp-node";
 import { NextRequest, NextResponse } from "next/server";
+import { ensureNotificationTable, getSqlClient } from "../../../lib/server/storage";
+
+export const runtime = "nodejs";
 
 type NotificationDetails = {
   url: string;
   token: string;
 };
-
-// Serverless-safe, idempotent in-memory fallback for basic webhook handling.
-// This is intentionally minimal and non-persistent for build stability.
-const notificationDetailsByFid = new Map<number, NotificationDetails>();
 
 function isNotificationDetails(value: unknown): value is NotificationDetails {
   if (!value || typeof value !== "object") {
@@ -28,22 +27,70 @@ function isNotificationDetails(value: unknown): value is NotificationDetails {
   );
 }
 
-function applyEvent(fid: number, eventName: string, notificationDetails?: unknown) {
+async function countEnabledNotifications() {
+  const sql = getSqlClient();
+  await ensureNotificationTable(sql);
+
+  const rows = (await sql`
+    SELECT COUNT(*)::int AS count
+    FROM miniapp_notifications
+    WHERE enabled = true
+      AND notification_url <> ''
+      AND notification_token <> ''
+  `) as Array<{ count: number | string }>;
+
+  return Number(rows[0]?.count ?? 0);
+}
+
+async function applyEvent(fid: number, eventName: string, notificationDetails?: unknown) {
+  const sql = getSqlClient();
+  await ensureNotificationTable(sql);
+  const now = Date.now();
+
   switch (eventName) {
     case "miniapp_added":
-    case "notifications_enabled":
+    case "notifications_enabled": {
       if (isNotificationDetails(notificationDetails)) {
-        notificationDetailsByFid.set(fid, notificationDetails);
+        await sql`
+          INSERT INTO miniapp_notifications
+            (fid, notification_url, notification_token, enabled, updated_at)
+          VALUES
+            (${fid}, ${notificationDetails.url}, ${notificationDetails.token}, true, ${now})
+          ON CONFLICT (fid) DO UPDATE SET
+            notification_url = EXCLUDED.notification_url,
+            notification_token = EXCLUDED.notification_token,
+            enabled = true,
+            updated_at = EXCLUDED.updated_at
+        `;
       } else {
-        notificationDetailsByFid.delete(fid);
+        await sql`
+          INSERT INTO miniapp_notifications
+            (fid, enabled, updated_at)
+          VALUES
+            (${fid}, false, ${now})
+          ON CONFLICT (fid) DO UPDATE SET
+            enabled = false,
+            updated_at = EXCLUDED.updated_at
+        `;
       }
       break;
+    }
+
     case "miniapp_removed":
-    case "notifications_disabled":
-      notificationDetailsByFid.delete(fid);
+    case "notifications_disabled": {
+      await sql`
+        INSERT INTO miniapp_notifications
+          (fid, enabled, updated_at)
+        VALUES
+          (${fid}, false, ${now})
+        ON CONFLICT (fid) DO UPDATE SET
+          enabled = false,
+          updated_at = EXCLUDED.updated_at
+      `;
       break;
+    }
+
     default:
-      // Ignore unknown events but keep successful ack after signature verification.
       break;
   }
 }
@@ -94,11 +141,21 @@ export async function POST(request: NextRequest) {
   const notificationDetails =
     "notificationDetails" in data.event ? data.event.notificationDetails : undefined;
 
-  applyEvent(data.fid, eventName, notificationDetails);
+  try {
+    await applyEvent(data.fid, eventName, notificationDetails);
+    const storedNotificationUsers = await countEnabledNotifications();
 
-  return NextResponse.json({
-    success: true,
-    event: eventName,
-    storedNotificationUsers: notificationDetailsByFid.size,
-  });
+    return NextResponse.json({
+      success: true,
+      event: eventName,
+      storedNotificationUsers,
+    });
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Webhook persistence failed";
+    return NextResponse.json(
+      { success: false, error: message },
+      { status: 500 }
+    );
+  }
 }

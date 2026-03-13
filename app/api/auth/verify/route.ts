@@ -1,47 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@farcaster/quick-auth";
-
-const client = createClient();
-
-function getVerificationDomain(req: NextRequest): string {
-  const forwardedHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const host = forwardedHost || req.headers.get("host")?.split(",")[0]?.trim();
-
-  if (host) {
-    return host.replace(/:\d+$/, "");
-  }
-
-  const deploymentHost = req.headers.get("x-vercel-deployment-url")?.trim();
-  if (deploymentHost) {
-    return deploymentHost.replace(/:\d+$/, "");
-  }
-
-  if (process.env.NEXT_PUBLIC_URL) {
-    try {
-      return new URL(process.env.NEXT_PUBLIC_URL).hostname;
-    } catch {
-      // Fall through to localhost if env value is malformed.
-    }
-  }
-
-  return "localhost";
-}
+import { verifyQuickAuthFromRequest } from "../../../../lib/server/farcasterAuth";
 
 export async function POST(req: NextRequest) {
+  const auth = await verifyQuickAuthFromRequest(req);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
+  }
+
   try {
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ error: "Missing token" }, { status: 401 });
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-    const domain = getVerificationDomain(req);
-
-    const payload = await client.verifyJwt({ token, domain });
-    const fid = Number(payload.sub);
-
+    const fid = auth.fid;
     // Optionally fetch user profile from Neynar
-    let user = { fid, username: undefined as string | undefined, displayName: undefined as string | undefined, pfpUrl: undefined as string | undefined };
+    let user = {
+      fid,
+      username: undefined as string | undefined,
+      displayName: undefined as string | undefined,
+      pfpUrl: undefined as string | undefined,
+    };
 
     const neynarKey = process.env.NEYNAR_API_KEY;
     if (neynarKey) {
@@ -68,8 +42,8 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ user });
-  } catch (err) {
-    console.error("[auth/verify] JWT verification failed:", err);
+  } catch (err: unknown) {
+    console.error("[auth/verify] profile enrichment failed:", err);
     return NextResponse.json({ error: "Invalid token" }, { status: 401 });
   }
 }

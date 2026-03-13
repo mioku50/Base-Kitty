@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { neon } from "@neondatabase/serverless";
+import { ensureScoresTable, getSqlClient } from "../../../lib/server/storage";
 
 export const runtime = "nodejs";
 
@@ -18,37 +18,30 @@ export interface ScoreEntry {
   prayersUsed: number;
   gamesPlayed: number;
   timestamp: number;
+  lastPlayedAt: number;
 }
+
+type ScoreRow = {
+  fid: number;
+  username: string;
+  display_name: string;
+  pfp_url: string;
+  best_score: number;
+  weekly_score: number;
+  week_key: string;
+  enemies_killed: number;
+  coins_collected: number;
+  max_stage: number;
+  prayers_used: number;
+  games_played: number;
+  timestamp: number | string;
+  last_played_at: number | string;
+};
 
 function withNoStoreHeaders(init?: ResponseInit): ResponseInit {
   const headers = new Headers(init?.headers);
   headers.set("Cache-Control", "no-store, max-age=0");
   return { ...init, headers };
-}
-
-let tableEnsured = false;
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function ensureTable(sql: (strings: TemplateStringsArray, ...values: any[]) => Promise<any>) {
-  if (tableEnsured) return;
-  await sql`
-    CREATE TABLE IF NOT EXISTS scores (
-      fid INTEGER PRIMARY KEY,
-      username TEXT NOT NULL,
-      display_name TEXT NOT NULL DEFAULT '',
-      pfp_url TEXT NOT NULL DEFAULT '',
-      best_score INTEGER NOT NULL DEFAULT 0,
-      weekly_score INTEGER NOT NULL DEFAULT 0,
-      week_key TEXT NOT NULL DEFAULT '',
-      enemies_killed INTEGER NOT NULL DEFAULT 0,
-      coins_collected INTEGER NOT NULL DEFAULT 0,
-      max_stage INTEGER NOT NULL DEFAULT 0,
-      prayers_used INTEGER NOT NULL DEFAULT 0,
-      games_played INTEGER NOT NULL DEFAULT 1,
-      timestamp BIGINT NOT NULL DEFAULT 0
-    )
-  `;
-  tableEnsured = true;
 }
 
 function currentWeekKey(): string {
@@ -61,16 +54,9 @@ function currentWeekKey(): string {
 
 // ─── POST: submit score ────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  if (!process.env.DATABASE_URL) {
-    return NextResponse.json(
-      { error: "DATABASE_URL is not configured" },
-      withNoStoreHeaders({ status: 500 })
-    );
-  }
-
   try {
-    const sql = neon(process.env.DATABASE_URL);
-    await ensureTable(sql);
+    const sql = getSqlClient();
+    await ensureScoresTable(sql);
 
     const body = await req.json();
     const {
@@ -95,14 +81,14 @@ export async function POST(req: NextRequest) {
     const wk = currentWeekKey();
     const now = Date.now();
 
-    const rows = await sql`
+    const rows = (await sql`
       INSERT INTO scores
         (fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
-         enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp)
+         enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp, last_played_at)
       VALUES
         (${fid}, ${username || `fid:${fid}`}, ${displayName || `User ${fid}`},
          ${pfpUrl || ""}, ${score}, ${score}, ${wk},
-         ${enemiesKilled}, ${coinsCollected}, ${maxStage}, ${prayersUsed}, 1, ${now})
+         ${enemiesKilled}, ${coinsCollected}, ${maxStage}, ${prayersUsed}, 1, ${now}, ${now})
       ON CONFLICT (fid) DO UPDATE SET
         username       = EXCLUDED.username,
         display_name   = EXCLUDED.display_name,
@@ -118,13 +104,14 @@ export async function POST(req: NextRequest) {
         max_stage      = GREATEST(scores.max_stage, ${maxStage}),
         prayers_used   = scores.prayers_used + ${prayersUsed},
         games_played   = scores.games_played + 1,
+        last_played_at = ${now},
         timestamp      = CASE
                            WHEN ${score} > scores.best_score THEN ${now}
                            ELSE scores.timestamp
                          END
       RETURNING best_score, weekly_score, week_key, enemies_killed, coins_collected,
-                max_stage, prayers_used, games_played, timestamp
-    `;
+                max_stage, prayers_used, games_played, timestamp, last_played_at
+    `) as ScoreRow[];
 
     const row = rows[0];
     const entry: ScoreEntry = {
@@ -141,6 +128,7 @@ export async function POST(req: NextRequest) {
       prayersUsed: row.prayers_used,
       gamesPlayed: row.games_played,
       timestamp: Number(row.timestamp),
+      lastPlayedAt: Number(row.last_played_at),
     };
 
     return NextResponse.json(
@@ -152,108 +140,114 @@ export async function POST(req: NextRequest) {
       },
       withNoStoreHeaders()
     );
-  } catch {
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Score submission failed";
+    const status =
+      message.includes("DATABASE_URL is not configured") ? 500 : 400;
     return NextResponse.json(
-      { error: "Bad request" },
-      withNoStoreHeaders({ status: 400 })
+      { error: message },
+      withNoStoreHeaders({ status })
     );
   }
 }
 
 // ─── GET: leaderboard ──────────────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  if (!process.env.DATABASE_URL) {
+  try {
+    const sql = getSqlClient();
+    await ensureScoresTable(sql);
+    const modeParam = req.nextUrl.searchParams.get("mode");
+    const mode = modeParam === "alltime" || modeParam === "friends" ? modeParam : "weekly";
+    const fidParam = req.nextUrl.searchParams.get("fid");
+    const friendFidsParam = req.nextUrl.searchParams.get("friends"); // comma-separated
+
+    const wk = currentWeekKey();
+    let rows: ScoreRow[];
+
+    if (mode === "weekly") {
+      rows = (await sql`
+        SELECT fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
+               enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp, last_played_at
+        FROM scores
+        WHERE week_key = ${wk}
+        ORDER BY weekly_score DESC
+        LIMIT 50
+      `) as ScoreRow[];
+    } else if (mode === "friends") {
+      const friendFids = friendFidsParam
+        ? friendFidsParam.split(",").map(Number).filter(Boolean)
+        : [];
+      if (fidParam) friendFids.push(Number(fidParam));
+      const uniqueFriendFids = [...new Set(friendFids)];
+
+      if (uniqueFriendFids.length === 0) {
+        rows = [];
+      } else {
+        rows = (await sql`
+          SELECT fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
+                 enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp, last_played_at
+          FROM scores
+          WHERE fid = ANY(${uniqueFriendFids})
+          ORDER BY best_score DESC
+          LIMIT 50
+        `) as ScoreRow[];
+      }
+    } else {
+      // alltime
+      rows = (await sql`
+        SELECT fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
+               enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp, last_played_at
+        FROM scores
+        ORDER BY best_score DESC
+        LIMIT 50
+      `) as ScoreRow[];
+    }
+
+    const leaderboard = rows.map((row, i) => {
+      const entry: ScoreEntry = {
+        fid: row.fid as number,
+        username: row.username as string,
+        displayName: row.display_name as string,
+        pfpUrl: row.pfp_url as string,
+        bestScore: row.best_score as number,
+        weeklyScore: row.weekly_score as number,
+        weekKey: row.week_key as string,
+        enemiesKilled: row.enemies_killed as number,
+        coinsCollected: row.coins_collected as number,
+        maxStage: row.max_stage as number,
+        prayersUsed: row.prayers_used as number,
+        gamesPlayed: row.games_played as number,
+        timestamp: Number(row.timestamp),
+        lastPlayedAt: Number(row.last_played_at as number),
+      };
+      return {
+        rank: i + 1,
+        fid: entry.fid,
+        username: entry.username,
+        displayName: entry.displayName,
+        pfpUrl: entry.pfpUrl,
+        score: mode === "weekly" ? entry.weeklyScore : entry.bestScore,
+        badges: deriveBadges(entry),
+      };
+    });
+
     return NextResponse.json(
-      { error: "DATABASE_URL is not configured" },
+      {
+        leaderboard,
+        mode,
+        storage: "neon",
+      },
+      withNoStoreHeaders()
+    );
+  } catch (error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Leaderboard unavailable";
+    return NextResponse.json(
+      { error: message },
       withNoStoreHeaders({ status: 500 })
     );
   }
-
-  const sql = neon(process.env.DATABASE_URL);
-  await ensureTable(sql);
-
-  const modeParam = req.nextUrl.searchParams.get("mode");
-  const mode = modeParam === "alltime" || modeParam === "friends" ? modeParam : "weekly";
-  const fidParam = req.nextUrl.searchParams.get("fid");
-  const friendFidsParam = req.nextUrl.searchParams.get("friends"); // comma-separated
-
-  const wk = currentWeekKey();
-  let rows: Record<string, unknown>[];
-
-  if (mode === "weekly") {
-    rows = await sql`
-      SELECT fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
-             enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp
-      FROM scores
-      WHERE week_key = ${wk}
-      ORDER BY weekly_score DESC
-      LIMIT 50
-    `;
-  } else if (mode === "friends") {
-    const friendFids = friendFidsParam
-      ? friendFidsParam.split(",").map(Number).filter(Boolean)
-      : [];
-    if (fidParam) friendFids.push(Number(fidParam));
-    const uniqueFriendFids = [...new Set(friendFids)];
-
-    if (uniqueFriendFids.length === 0) {
-      rows = [];
-    } else {
-      rows = await sql`
-        SELECT fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
-               enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp
-        FROM scores
-        WHERE fid = ANY(${uniqueFriendFids})
-        ORDER BY best_score DESC
-        LIMIT 50
-      `;
-    }
-  } else {
-    // alltime
-    rows = await sql`
-      SELECT fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
-             enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp
-      FROM scores
-      ORDER BY best_score DESC
-      LIMIT 50
-    `;
-  }
-
-  const leaderboard = rows.map((row, i) => {
-    const entry: ScoreEntry = {
-      fid: row.fid as number,
-      username: row.username as string,
-      displayName: row.display_name as string,
-      pfpUrl: row.pfp_url as string,
-      bestScore: row.best_score as number,
-      weeklyScore: row.weekly_score as number,
-      weekKey: row.week_key as string,
-      enemiesKilled: row.enemies_killed as number,
-      coinsCollected: row.coins_collected as number,
-      maxStage: row.max_stage as number,
-      prayersUsed: row.prayers_used as number,
-      gamesPlayed: row.games_played as number,
-      timestamp: Number(row.timestamp),
-    };
-    return {
-      rank: i + 1,
-      fid: entry.fid,
-      username: entry.username,
-      displayName: entry.displayName,
-      pfpUrl: entry.pfpUrl,
-      score: mode === "weekly" ? entry.weeklyScore : entry.bestScore,
-      badges: deriveBadges(entry),
-    };
-  });
-
-  return NextResponse.json(
-    {
-      leaderboard,
-      mode,
-      storage: "neon",
-    },
-    withNoStoreHeaders()
-  );
 }
 
 // ─── Badge derivation ──────────────────────────────────────────────────────

@@ -133,11 +133,11 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     }
     if (claimStatus) {
       if (claimStatus.eligible) {
-        return "☁️ Claim Daily Blessing 5 $Degen 😇";
+        return "☁️ Claim Daily Blessing 10 $Degen 😇";
       }
       return `☁️ ${statusLabel(claimStatus.reason, claimStatus.nextClaimAt)}`;
     }
-    return "☁️ Claim Daily Blessing 5 $Degen 😇";
+    return "☁️ Claim Daily Blessing 10 $Degen 😇";
   }, [claimPending, claimStatus]);
 
   const claimDisabled =

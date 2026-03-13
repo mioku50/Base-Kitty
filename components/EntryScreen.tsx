@@ -65,6 +65,7 @@ type TaskPrepareResponse = ClaimPrepareResponse;
 const BASE_CHAIN_ID = "0x2105";
 const CLAIM_STATUS_POLL_INTERVAL_MS = 900;
 const CLAIM_STATUS_POLL_ATTEMPTS = 10;
+const CAST_COMPOSER_TIMEOUT_MS = 12000;
 const PIN_PROMPT_STORAGE_KEY = "nimbus_ascent:pin_prompt_seen:v1";
 
 function asHexAddress(value: string | undefined): HexAddress | null {
@@ -169,15 +170,37 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const [lastClaimTask, setLastClaimTask] = useState<"daily" | "share" | "invite" | null>(null);
   const [claimStatus, setClaimStatus] = useState<ClaimStatusResponse | null>(null);
   const [sharePending, setSharePending] = useState(false);
+  const [shareTaskCastPending, setShareTaskCastPending] = useState(false);
+  const [inviteTaskCastPending, setInviteTaskCastPending] = useState(false);
   const [taskMessage, setTaskMessage] = useState("");
   const [showBlessings, setShowBlessings] = useState(false);
   const [tasksStatus, setTasksStatus] = useState<TasksStatusResponse | null>(null);
   const [taskClaimPending, setTaskClaimPending] = useState<"share" | "invite" | null>(null);
   const [shareTaskPrimed, setShareTaskPrimed] = useState(false);
+  const [inviteTaskPrimed, setInviteTaskPrimed] = useState(false);
 
   const [showPinPrompt, setShowPinPrompt] = useState(false);
   const [pinPending, setPinPending] = useState(false);
   const [pinMessage, setPinMessage] = useState("");
+
+  const openCastComposer = useCallback(
+    async (text: string, embeds: string[]) => {
+      let timeoutId: number | null = null;
+      const timeoutPromise = new Promise<"timeout">((resolve) => {
+        timeoutId = window.setTimeout(() => resolve("timeout"), CAST_COMPOSER_TIMEOUT_MS);
+      });
+
+      const castPromise = composeCast(text, { embeds }).then(() => "opened" as const);
+      const result = await Promise.race([castPromise, timeoutPromise]);
+
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId);
+      }
+
+      return result;
+    },
+    [composeCast]
+  );
 
   const claimButtonText = useMemo(() => {
     if (claimPending) {
@@ -590,23 +613,27 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       const appUrl = typeof window !== "undefined" ? window.location.origin : "";
       const text = "💙 I claimed my Daily Blessing in Nimbus Ascent. Angel vibes only.";
       const embeds = [appUrl, blessingOgUrl].filter(Boolean);
-      await composeCast(text, { embeds });
-      setTaskMessage("Blessing card opened in composer ✓");
+      const result = await openCastComposer(text, embeds);
+      setTaskMessage(
+        result === "timeout"
+          ? "Composer opened. Share the blessing card, then return to the game."
+          : "Blessing card opened in composer ✓"
+      );
     } catch (err) {
       setTaskMessage(normalizeProviderError(err));
     } finally {
       setSharePending(false);
     }
-  }, [blessingOgUrl, composeCast, sharePending]);
+  }, [blessingOgUrl, openCastComposer, sharePending]);
 
   const handleShareBestScoreTask = useCallback(async () => {
     if (!user) {
       setTaskMessage("Sign in with Farcaster first");
       return;
     }
-    if (sharePending) return;
+    if (shareTaskCastPending) return;
     setTaskMessage("");
-    setSharePending(true);
+    setShareTaskCastPending(true);
     try {
       const appUrl = typeof window !== "undefined" ? window.location.origin : "";
       const bestRaw =
@@ -621,38 +648,47 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       });
       const scoreCardUrl = appUrl ? `${appUrl}/api/og?${scoreParams.toString()}` : "";
       const text = `😺 My best score in Nimbus Ascent is ${bestScore.toLocaleString()} pts.`;
-      await composeCast(text, { embeds: [appUrl, scoreCardUrl].filter(Boolean) });
+      const result = await openCastComposer(text, [appUrl, scoreCardUrl].filter(Boolean));
       setShareTaskPrimed(true);
-      setTaskMessage("Score card shared ✓ now tap Claim +1 $Degen");
+      setTaskMessage(
+        result === "timeout"
+          ? "Composer opened. Post the score card, then tap Claim +1 $Degen."
+          : "Score card shared ✓ now tap Claim +1 $Degen"
+      );
       await fetchTasksStatus();
     } catch (err) {
       setTaskMessage(normalizeProviderError(err));
     } finally {
-      setSharePending(false);
+      setShareTaskCastPending(false);
     }
-  }, [composeCast, fetchTasksStatus, sharePending, user]);
+  }, [fetchTasksStatus, openCastComposer, shareTaskCastPending, user]);
 
   const handleInviteFriendTask = useCallback(async () => {
     if (!user) {
       setTaskMessage("Sign in with Farcaster first");
       return;
     }
-    if (sharePending) return;
+    if (inviteTaskCastPending) return;
     setTaskMessage("");
-    setSharePending(true);
+    setInviteTaskCastPending(true);
     try {
       const appUrl = typeof window !== "undefined" ? window.location.origin : "";
       const inviteUrl = appUrl ? `${appUrl}/?ref=${user.fid}` : "";
       const text = "😇 Join Nimbus Ascent and claim Daily Blessings with me. +2 $Degen invite task.";
-      await composeCast(text, { embeds: [inviteUrl || appUrl].filter(Boolean) });
-      setTaskMessage("Invite shared ✓ after friend plays, tap Claim +2 $Degen");
+      const result = await openCastComposer(text, [inviteUrl || appUrl].filter(Boolean));
+      setInviteTaskPrimed(true);
+      setTaskMessage(
+        result === "timeout"
+          ? "Invite composer opened. After your friend plays, tap Claim +2 $Degen."
+          : "Invite shared ✓ after friend plays, tap Claim +2 $Degen"
+      );
       await fetchTasksStatus();
     } catch (err) {
       setTaskMessage(normalizeProviderError(err));
     } finally {
-      setSharePending(false);
+      setInviteTaskCastPending(false);
     }
-  }, [composeCast, fetchTasksStatus, sharePending, user]);
+  }, [fetchTasksStatus, inviteTaskCastPending, openCastComposer, user]);
 
   const handleShowStreakTask = useCallback(() => {
     setTaskMessage("Streak perks are active in gameplay (rare drops and UI skins).");
@@ -800,10 +836,10 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={handleShareBestScoreTask}
-                    disabled={!user || sharePending || taskClaimPending !== null}
+                    disabled={!user || shareTaskCastPending || taskClaimPending !== null}
                     className="rounded-xl border border-cyan-300/30 bg-cyan-500/20 px-2 py-2 text-white text-xs font-bold disabled:opacity-50"
                   >
-                    {sharePending ? "Sharing..." : "Share"}
+                    {shareTaskCastPending ? "Sharing..." : "Share"}
                   </button>
                   <button
                     onClick={() => {
@@ -815,7 +851,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                       !user ||
                       !shareTaskPrimed ||
                       !shareTask?.eligible ||
-                      sharePending ||
+                      shareTaskCastPending ||
                       taskClaimPending !== null
                     }
                     className="rounded-xl border border-emerald-300/30 bg-emerald-500/20 px-2 py-2 text-white text-xs font-bold disabled:opacity-50"
@@ -839,10 +875,10 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                         // handled in callback
                       });
                     }}
-                    disabled={!user || sharePending || taskClaimPending !== null}
+                    disabled={!user || inviteTaskCastPending || taskClaimPending !== null}
                     className="rounded-xl border border-blue-300/30 bg-blue-500/20 px-2 py-2 text-white text-xs font-bold disabled:opacity-50"
                   >
-                    {sharePending ? "Opening..." : "Invite"}
+                    {inviteTaskCastPending ? "Opening..." : "Invite"}
                   </button>
                   <button
                     onClick={() => {
@@ -854,7 +890,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                       !user ||
                       !inviteTask?.eligible ||
                       referredCount <= 0 ||
-                      sharePending ||
+                      inviteTaskCastPending ||
                       taskClaimPending !== null
                     }
                     className="rounded-xl border border-emerald-300/30 bg-emerald-500/20 px-2 py-2 text-white text-xs font-bold disabled:opacity-50"
@@ -863,7 +899,9 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                   </button>
                 </div>
                 <p className="text-blue-200/80 text-[10px] mt-2">
-                  Referred players detected: {referredCount}
+                  {inviteTaskPrimed
+                    ? `Invite sent in this session. Referred players detected: ${referredCount}`
+                    : `Step 1: Invite, Step 2: Friend plays. Referred players detected: ${referredCount}`}
                 </p>
               </div>
             </div>

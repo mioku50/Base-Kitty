@@ -90,6 +90,10 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
   // Submit score on mount
   useEffect(() => {
     if (effectiveUser) {
+      const referrerFid =
+        typeof window !== "undefined"
+          ? Number(window.localStorage.getItem("nimbus_ascent:referrer_fid") || 0)
+          : 0;
       fetch("/api/score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -103,6 +107,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
           coinsCollected: stats.coinsCollected,
           maxStage: stats.maxStage,
           prayersUsed: stats.prayersUsed,
+          referrerFid: Number.isFinite(referrerFid) && referrerFid > 0 ? referrerFid : undefined,
         }),
       })
         .then((r) => r.json())

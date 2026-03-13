@@ -28,6 +28,31 @@ type ClaimStatusResponse = {
   estimatedGasUsd: number | null;
 };
 
+type TaskReason =
+  | "eligible"
+  | "play_required"
+  | "streak_required"
+  | "wallet_required"
+  | "cooldown"
+  | "gas_too_high"
+  | "price_unavailable"
+  | "invite_required";
+
+type TaskStatus = {
+  eligible: boolean;
+  reason: TaskReason;
+  nextClaimAt: number | null;
+  rewardUsd: number | null;
+  estimatedGasUsd: number | null;
+};
+
+type TasksStatusResponse = {
+  streakDays: number;
+  availableInvites: number;
+  streak: TaskStatus;
+  invite: TaskStatus;
+};
+
 type ClaimPrepareResponse = {
   tx: {
     chainIdHex: string;
@@ -36,6 +61,8 @@ type ClaimPrepareResponse = {
     value: `0x${string}`;
   };
 };
+
+type TaskPrepareResponse = ClaimPrepareResponse;
 
 const BASE_CHAIN_ID = "0x2105";
 const CLAIM_STATUS_POLL_INTERVAL_MS = 900;
@@ -113,6 +140,29 @@ function statusLabel(reason: ClaimReason, nextClaimAt: number | null) {
   }
 }
 
+function taskStatusLabel(reason: TaskReason, nextClaimAt: number | null) {
+  switch (reason) {
+    case "eligible":
+      return "Claim now";
+    case "play_required":
+      return "Play a run first";
+    case "streak_required":
+      return "Need 2-day streak";
+    case "wallet_required":
+      return "Connect wallet";
+    case "cooldown":
+      return formatCooldown(nextClaimAt);
+    case "gas_too_high":
+      return "Gas too high";
+    case "price_unavailable":
+      return "Pricing unavailable";
+    case "invite_required":
+      return "Invite a friend first";
+    default:
+      return "Unavailable";
+  }
+}
+
 export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const { user, isSDKLoaded, signIn, composeCast } = useFarcaster();
 
@@ -124,6 +174,8 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const [sharePending, setSharePending] = useState(false);
   const [taskMessage, setTaskMessage] = useState("");
   const [showBlessings, setShowBlessings] = useState(false);
+  const [tasksStatus, setTasksStatus] = useState<TasksStatusResponse | null>(null);
+  const [taskClaimPending, setTaskClaimPending] = useState<"streak" | "invite" | null>(null);
 
   const [showPinPrompt, setShowPinPrompt] = useState(false);
   const [pinPending, setPinPending] = useState(false);
@@ -198,62 +250,60 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     });
   }, [fetchClaimStatus]);
 
-  const handleClaim = useCallback(async () => {
-    setClaimPending(true);
-    setClaimError("");
-    setClaimTxHash("");
-    setClaimCallsId("");
+  const fetchTasksStatus = useCallback(async () => {
+    if (!isSDKLoaded || !user) return;
 
     try {
-      const provider = await sdk.wallet.getEthereumProvider();
-      if (!provider) {
-        throw new Error("Wallet provider is unavailable in this client");
-      }
-
-      const accounts = (await provider.request({
-        method: "eth_requestAccounts",
-      })) as string[] | undefined;
-      const from = asHexAddress(accounts?.[0]);
-      if (!from) {
-        throw new Error("No wallet account is connected");
-      }
-
       const { token } = await sdk.quickAuth.getToken();
-      const prepareResponse = await fetch("/api/claim/prepare", {
-        method: "POST",
+      const provider = await sdk.wallet.getEthereumProvider();
+
+      let addressQuery = "";
+      if (provider) {
+        const accounts = (await provider.request({
+          method: "eth_accounts",
+        })) as string[] | undefined;
+        const address = asHexAddress(accounts?.[0]);
+        if (address) {
+          addressQuery = `?address=${address}`;
+        }
+      }
+
+      const response = await fetch(`/api/tasks/status${addressQuery}`, {
+        method: "GET",
         headers: {
-          "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ address: from }),
+        cache: "no-store",
       });
 
-      if (!prepareResponse.ok) {
-        const errorData = (await prepareResponse.json().catch(() => ({}))) as {
-          error?: string;
-          reason?: ClaimReason;
-          nextClaimAt?: number | null;
-          rewardUsd?: number;
-          estimatedGasUsd?: number;
-        };
-
-        if (errorData.reason) {
-          setClaimStatus((prev) => ({
-            eligible: false,
-            reason: errorData.reason as ClaimReason,
-            nextClaimAt: errorData.nextClaimAt ?? prev?.nextClaimAt ?? null,
-            rewardUsd: errorData.rewardUsd ?? prev?.rewardUsd ?? null,
-            estimatedGasUsd:
-              errorData.estimatedGasUsd ?? prev?.estimatedGasUsd ?? null,
-          }));
-        }
-
-        throw new Error(errorData.error || "Claim is unavailable");
+      if (!response.ok) {
+        const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errorData.error || "Failed to fetch task status");
       }
 
-      const prepared = (await prepareResponse.json()) as ClaimPrepareResponse;
-      const targetChain = (prepared.tx.chainIdHex || BASE_CHAIN_ID) as `0x${string}`;
+      const data = (await response.json()) as TasksStatusResponse;
+      setTasksStatus(data);
+    } catch (err) {
+      setTasksStatus(null);
+      setTaskMessage(normalizeProviderError(err));
+    }
+  }, [isSDKLoaded, user]);
 
+  useEffect(() => {
+    fetchTasksStatus().catch(() => {
+      // handled inside fetchTasksStatus
+    });
+  }, [fetchTasksStatus]);
+
+  const sendClaimTransaction = useCallback(
+    async (
+      provider: {
+        request: (params: { method: string; params?: unknown[] }) => Promise<unknown>;
+      },
+      from: HexAddress,
+      prepared: ClaimPrepareResponse
+    ) => {
+      const targetChain = (prepared.tx.chainIdHex || BASE_CHAIN_ID) as `0x${string}`;
       const chainId = (await provider.request({ method: "eth_chainId" })) as string;
       if (chainId !== targetChain) {
         try {
@@ -334,15 +384,125 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         })) as string;
       }
 
+      return { txHash, callsId };
+    },
+    []
+  );
+
+  const handleClaim = useCallback(async () => {
+    setClaimPending(true);
+    setClaimError("");
+    setClaimTxHash("");
+    setClaimCallsId("");
+
+    try {
+      const provider = await sdk.wallet.getEthereumProvider();
+      if (!provider) {
+        throw new Error("Wallet provider is unavailable in this client");
+      }
+
+      const accounts = (await provider.request({
+        method: "eth_requestAccounts",
+      })) as string[] | undefined;
+      const from = asHexAddress(accounts?.[0]);
+      if (!from) {
+        throw new Error("No wallet account is connected");
+      }
+
+      const { token } = await sdk.quickAuth.getToken();
+      const prepareResponse = await fetch("/api/claim/prepare", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ address: from }),
+      });
+
+      if (!prepareResponse.ok) {
+        const errorData = (await prepareResponse.json().catch(() => ({}))) as {
+          error?: string;
+          reason?: ClaimReason;
+          nextClaimAt?: number | null;
+          rewardUsd?: number;
+          estimatedGasUsd?: number;
+        };
+
+        if (errorData.reason) {
+          setClaimStatus((prev) => ({
+            eligible: false,
+            reason: errorData.reason as ClaimReason,
+            nextClaimAt: errorData.nextClaimAt ?? prev?.nextClaimAt ?? null,
+            rewardUsd: errorData.rewardUsd ?? prev?.rewardUsd ?? null,
+            estimatedGasUsd:
+              errorData.estimatedGasUsd ?? prev?.estimatedGasUsd ?? null,
+          }));
+        }
+
+        throw new Error(errorData.error || "Claim is unavailable");
+      }
+
+      const prepared = (await prepareResponse.json()) as ClaimPrepareResponse;
+      const { txHash, callsId } = await sendClaimTransaction(provider, from, prepared);
       setClaimTxHash(txHash);
       setClaimCallsId(callsId);
-      await fetchClaimStatus();
+      await Promise.all([fetchClaimStatus(), fetchTasksStatus()]);
     } catch (err) {
       setClaimError(normalizeProviderError(err));
     } finally {
       setClaimPending(false);
     }
-  }, [fetchClaimStatus]);
+  }, [fetchClaimStatus, fetchTasksStatus, sendClaimTransaction]);
+
+  const handleTaskClaim = useCallback(
+    async (task: "streak" | "invite") => {
+      setTaskClaimPending(task);
+      setTaskMessage("");
+      setClaimError("");
+
+      try {
+        const provider = await sdk.wallet.getEthereumProvider();
+        if (!provider) {
+          throw new Error("Wallet provider is unavailable in this client");
+        }
+
+        const accounts = (await provider.request({
+          method: "eth_requestAccounts",
+        })) as string[] | undefined;
+        const from = asHexAddress(accounts?.[0]);
+        if (!from) {
+          throw new Error("No wallet account is connected");
+        }
+
+        const { token } = await sdk.quickAuth.getToken();
+        const response = await fetch("/api/tasks/prepare", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ task, address: from }),
+        });
+
+        if (!response.ok) {
+          const errorData = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(errorData.error || "Task claim is unavailable");
+        }
+
+        const prepared = (await response.json()) as TaskPrepareResponse;
+        const { txHash, callsId } = await sendClaimTransaction(provider, from, prepared);
+        setClaimTxHash(txHash);
+        setClaimCallsId(callsId);
+        setTaskMessage(task === "streak" ? "Streak reward claimed ✓" : "Invite reward claimed ✓");
+        await Promise.all([fetchClaimStatus(), fetchTasksStatus()]);
+      } catch (err) {
+        setTaskMessage(normalizeProviderError(err));
+      } finally {
+        setTaskClaimPending(null);
+      }
+    },
+    [fetchClaimStatus, fetchTasksStatus, sendClaimTransaction]
+  );
 
   useEffect(() => {
     if (!isSDKLoaded || typeof window === "undefined") return;
@@ -491,6 +651,25 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     setTaskMessage("Streak bonuses: +1 $Degen reward, rare drops and UI skins.");
   }, []);
 
+  const streakTask = tasksStatus?.streak;
+  const inviteTask = tasksStatus?.invite;
+  const availableInvites = tasksStatus?.availableInvites ?? 0;
+
+  const streakButtonText = useMemo(() => {
+    if (taskClaimPending === "streak") return "🔥 Claiming streak reward...";
+    if (!streakTask) return "🔥 Streak Blessing (+1 $Degen)";
+    if (streakTask.eligible) return "🔥 Claim Streak Bonus +1 $Degen";
+    return `🔥 ${taskStatusLabel(streakTask.reason, streakTask.nextClaimAt)}`;
+  }, [streakTask, taskClaimPending]);
+
+  const inviteButtonText = useMemo(() => {
+    if (taskClaimPending === "invite") return "🎁 Claiming invite reward...";
+    if (inviteTask?.eligible && availableInvites > 0) {
+      return `🎁 Claim Invite Reward +2 $Degen (${availableInvites})`;
+    }
+    return "🫂 Invite a friend (+2 $Degen)";
+  }, [availableInvites, inviteTask?.eligible, taskClaimPending]);
+
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center z-50 overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-b from-[#1a0533] via-[#0d1b2a] to-[#0a0020]" />
@@ -589,10 +768,23 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
               </button>
 
               <button
-                onClick={handleShowStreakTask}
-                className="w-full rounded-2xl border border-purple-300/35 bg-purple-500/15 px-3 py-3 text-white text-sm font-bold"
+                onClick={() => {
+                  if (streakTask?.eligible) {
+                    handleTaskClaim("streak").catch(() => {
+                      // handled in callback
+                    });
+                    return;
+                  }
+                  if (streakTask) {
+                    setTaskMessage(taskStatusLabel(streakTask.reason, streakTask.nextClaimAt));
+                    return;
+                  }
+                  handleShowStreakTask();
+                }}
+                disabled={taskClaimPending !== null || !user}
+                className="w-full rounded-2xl border border-purple-300/35 bg-purple-500/15 px-3 py-3 text-white text-sm font-bold disabled:opacity-50"
               >
-                🔥 Streak Blessing (+1 $Degen)
+                {streakButtonText}
               </button>
 
               <div className="rounded-xl border border-purple-300/20 bg-purple-500/10 px-3 py-2">
@@ -600,6 +792,11 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                 <p className="text-purple-200/90 text-[11px] mt-1">
                   +1 token bonus, rare item drops, UI skin chance.
                 </p>
+                {tasksStatus && (
+                  <p className="text-purple-200/80 text-[10px] mt-1">
+                    Streak: {tasksStatus.streakDays} day(s) • Invite rewards ready: {availableInvites}
+                  </p>
+                )}
               </div>
 
               <button
@@ -611,11 +808,21 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
               </button>
 
               <button
-                onClick={handleInviteFriendTask}
-                disabled={!user || sharePending}
+                onClick={() => {
+                  if (inviteTask?.eligible && availableInvites > 0) {
+                    handleTaskClaim("invite").catch(() => {
+                      // handled in callback
+                    });
+                    return;
+                  }
+                  handleInviteFriendTask().catch(() => {
+                    // handled in callback
+                  });
+                }}
+                disabled={!user || sharePending || taskClaimPending !== null}
                 className="w-full rounded-2xl border border-blue-300/35 bg-blue-500/15 px-3 py-3 text-white text-sm font-bold disabled:opacity-50"
               >
-                🫂 Invite a friend (+2 $Degen)
+                {inviteButtonText}
               </button>
             </div>
 

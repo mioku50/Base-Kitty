@@ -16,10 +16,25 @@ const BASE_CHAIN_ID = 8453;
 const CLAIM_COOLDOWN_SECONDS = 24 * 60 * 60;
 const CLAIM_VOUCHER_TTL_SECONDS = 10 * 60;
 const PRICE_CACHE_MS = 5 * 60 * 1000;
+const DEFAULT_STREAK_REWARD_RAW = BigInt("1000000000000000000");
+const DEFAULT_INVITE_REWARD_RAW = BigInt("2000000000000000000");
+
+const EIP712_NAME = "Nimbus Blessings";
+const EIP712_VERSION = "2";
+
+export type BlessingTask = "daily" | "streak" | "invite";
+
+const TASK_ID = {
+  daily: 0,
+  streak: 1,
+  invite: 2,
+} as const;
 
 const claimAbi = parseAbi([
-  "function claim((address recipient,uint256 amount,uint256 validAfter,uint256 validBefore,uint256 nonce) voucher, bytes signature)",
+  "function claim((address recipient,uint8 task,uint256 amount,uint256 validAfter,uint256 validBefore,uint256 nonce) voucher, bytes signature)",
   "function nextClaimAt(address user) view returns (uint256)",
+  "function nextClaimAt(address user, uint8 task) view returns (uint256)",
+  "function usedNonces(uint256 nonce) view returns (bool)",
 ]);
 
 const erc20Abi = parseAbi(["function decimals() view returns (uint8)"]);
@@ -29,11 +44,14 @@ type ClaimConfig = {
   claimContractAddress: Address;
   degenTokenAddress: Address;
   signerPrivateKey: `0x${string}`;
-  rewardAmountRaw: bigint;
+  dailyRewardAmountRaw: bigint;
+  streakRewardAmountRaw: bigint;
+  inviteRewardAmountRaw: bigint;
 };
 
 export type ClaimVoucher = {
   recipient: Address;
+  task: number;
   amount: bigint;
   validAfter: bigint;
   validBefore: bigint;
@@ -59,6 +77,7 @@ let priceCache: PriceSnapshot | null = null;
 const claimVoucherTypes = {
   ClaimVoucher: [
     { name: "recipient", type: "address" },
+    { name: "task", type: "uint8" },
     { name: "amount", type: "uint256" },
     { name: "validAfter", type: "uint256" },
     { name: "validBefore", type: "uint256" },
@@ -72,6 +91,21 @@ function mustEnv(name: string): string {
     throw new Error(`${name} is not configured`);
   }
   return value;
+}
+
+function parseRawAmount(value: string, envName: string): bigint {
+  let parsed: bigint;
+  try {
+    parsed = BigInt(value);
+  } catch {
+    throw new Error(`${envName} must be an integer string`);
+  }
+
+  if (parsed <= BigInt(0)) {
+    throw new Error(`${envName} must be greater than 0`);
+  }
+
+  return parsed;
 }
 
 function asAddress(value: string, label: string): Address {
@@ -90,25 +124,27 @@ function asPrivateKey(value: string): `0x${string}` {
 }
 
 function getConfig(): ClaimConfig {
-  const rewardRawString = mustEnv("DAILY_BLESSING_AMOUNT_RAW");
-
-  let rewardAmountRaw: bigint;
-  try {
-    rewardAmountRaw = BigInt(rewardRawString);
-  } catch {
-    throw new Error("DAILY_BLESSING_AMOUNT_RAW must be an integer string");
-  }
-
-  if (rewardAmountRaw <= BigInt(0)) {
-    throw new Error("DAILY_BLESSING_AMOUNT_RAW must be greater than 0");
-  }
+  const dailyRaw = parseRawAmount(
+    mustEnv("DAILY_BLESSING_AMOUNT_RAW"),
+    "DAILY_BLESSING_AMOUNT_RAW"
+  );
+  const streakRaw = parseRawAmount(
+    process.env.STREAK_BLESSING_AMOUNT_RAW?.trim() || String(DEFAULT_STREAK_REWARD_RAW),
+    "STREAK_BLESSING_AMOUNT_RAW"
+  );
+  const inviteRaw = parseRawAmount(
+    process.env.INVITE_BLESSING_AMOUNT_RAW?.trim() || String(DEFAULT_INVITE_REWARD_RAW),
+    "INVITE_BLESSING_AMOUNT_RAW"
+  );
 
   return {
     baseRpcUrl: mustEnv("BASE_RPC_URL"),
     claimContractAddress: asAddress(mustEnv("CLAIM_CONTRACT_ADDRESS"), "CLAIM_CONTRACT_ADDRESS"),
     degenTokenAddress: asAddress(mustEnv("DEGEN_TOKEN_ADDRESS"), "DEGEN_TOKEN_ADDRESS"),
     signerPrivateKey: asPrivateKey(mustEnv("CLAIM_SIGNER_PRIVATE_KEY")),
-    rewardAmountRaw,
+    dailyRewardAmountRaw: dailyRaw,
+    streakRewardAmountRaw: streakRaw,
+    inviteRewardAmountRaw: inviteRaw,
   };
 }
 
@@ -133,6 +169,21 @@ function makeNonceBigInt(): bigint {
   return BigInt(`0x${randomUUID().replace(/-/g, "")}`);
 }
 
+function formatRewardLabel(amountRaw: bigint) {
+  const amount = formatUnits(amountRaw, 18).replace(/\.0+$/, "");
+  return `${amount} $DEGEN`;
+}
+
+function getTaskId(task: BlessingTask) {
+  return TASK_ID[task];
+}
+
+function getTaskRewardRawFromConfig(config: ClaimConfig, task: BlessingTask) {
+  if (task === "daily") return config.dailyRewardAmountRaw;
+  if (task === "streak") return config.streakRewardAmountRaw;
+  return config.inviteRewardAmountRaw;
+}
+
 export function isAddressLike(value: string | null | undefined): value is Address {
   return Boolean(value && isAddress(value));
 }
@@ -149,12 +200,21 @@ export function getClaimTxTarget() {
   return getConfig().claimContractAddress;
 }
 
+export function getTaskRewardAmountRaw(task: BlessingTask) {
+  const config = getConfig();
+  return getTaskRewardRawFromConfig(config, task);
+}
+
+export function getTaskRewardLabel(task: BlessingTask) {
+  return formatRewardLabel(getTaskRewardAmountRaw(task));
+}
+
 export function getRewardAmountRaw() {
-  return getConfig().rewardAmountRaw;
+  return getTaskRewardAmountRaw("daily");
 }
 
 export function getRewardLabel() {
-  return "5 $DEGEN";
+  return getTaskRewardLabel("daily");
 }
 
 export function isRunWithin24Hours(lastPlayedAtMs: number | null, nowMs = Date.now()) {
@@ -162,37 +222,120 @@ export function isRunWithin24Hours(lastPlayedAtMs: number | null, nowMs = Date.n
   return nowMs - lastPlayedAtMs <= CLAIM_COOLDOWN_SECONDS * 1000;
 }
 
-export async function getNextClaimAt(walletAddress: Address): Promise<number> {
+export function buildInviteNonce(referrerFid: number, referredFid: number): bigint {
+  const prefix = BigInt(2) << BigInt(248);
+  const mask = (BigInt(1) << BigInt(120)) - BigInt(1);
+  const referrerPart = (BigInt(referrerFid) & mask) << BigInt(120);
+  const referredPart = BigInt(referredFid) & mask;
+  return prefix | referrerPart | referredPart;
+}
+
+export async function isClaimNonceUsed(nonce: bigint): Promise<boolean> {
   const config = getConfig();
   const client = getPublicClient(config.baseRpcUrl);
 
-  const nextClaimAt = await client.readContract({
+  return client.readContract({
     address: config.claimContractAddress,
     abi: claimAbi,
-    functionName: "nextClaimAt",
-    args: [walletAddress],
+    functionName: "usedNonces",
+    args: [nonce],
   });
-
-  return Number(nextClaimAt);
 }
 
-export async function buildSignedClaim(walletAddress: Address): Promise<SignedClaim> {
+export async function findFirstAvailableInviteNonce(
+  referrerFid: number,
+  referredFids: number[]
+): Promise<{ nonce: bigint | null; availableCount: number }> {
+  const filtered = [...new Set(referredFids.filter((fid) => Number.isInteger(fid) && fid > 0))].slice(
+    0,
+    64
+  );
+  if (filtered.length === 0) {
+    return { nonce: null, availableCount: 0 };
+  }
+
+  const config = getConfig();
+  const client = getPublicClient(config.baseRpcUrl);
+  const nonces = filtered.map((referredFid) => buildInviteNonce(referrerFid, referredFid));
+
+  const results = await client.multicall({
+    allowFailure: true,
+    contracts: nonces.map((nonce) => ({
+      address: config.claimContractAddress,
+      abi: claimAbi,
+      functionName: "usedNonces",
+      args: [nonce],
+    })),
+  });
+
+  let first: bigint | null = null;
+  let availableCount = 0;
+
+  results.forEach((result, index) => {
+    if (result.status !== "success") return;
+    const used = Boolean(result.result);
+    if (!used) {
+      availableCount += 1;
+      if (first === null) {
+        first = nonces[index] ?? null;
+      }
+    }
+  });
+
+  return { nonce: first, availableCount };
+}
+
+export async function getNextClaimAt(walletAddress: Address, task: BlessingTask = "daily"): Promise<number> {
+  const config = getConfig();
+  const client = getPublicClient(config.baseRpcUrl);
+
+  try {
+    const nextClaimAt = await client.readContract({
+      address: config.claimContractAddress,
+      abi: claimAbi,
+      functionName: "nextClaimAt",
+      args: [walletAddress, getTaskId(task)],
+    });
+
+    return Number(nextClaimAt);
+  } catch (error) {
+    if (task !== "daily") {
+      throw error;
+    }
+
+    const fallback = await client.readContract({
+      address: config.claimContractAddress,
+      abi: claimAbi,
+      functionName: "nextClaimAt",
+      args: [walletAddress],
+    });
+    return Number(fallback);
+  }
+}
+
+export async function buildSignedClaim(
+  walletAddress: Address,
+  task: BlessingTask = "daily",
+  nonceOverride?: bigint
+): Promise<SignedClaim> {
   const config = getConfig();
   const signer = privateKeyToAccount(config.signerPrivateKey);
   const nowSec = Math.floor(Date.now() / 1000);
+  const taskId = getTaskId(task);
 
   const voucher: ClaimVoucher = {
     recipient: walletAddress,
-    amount: config.rewardAmountRaw,
+    task: taskId,
+    amount: getTaskRewardRawFromConfig(config, task),
     validAfter: BigInt(Math.max(0, nowSec - 30)),
     validBefore: BigInt(nowSec + CLAIM_VOUCHER_TTL_SECONDS),
-    nonce: makeNonceBigInt(),
+    nonce: nonceOverride ?? makeNonceBigInt(),
   };
 
   const signature = await signer.signTypedData({
     domain: {
-      name: "Nimbus Daily Blessing",
-      version: "1",
+      name: EIP712_NAME,
+      version: EIP712_VERSION,
       chainId: BASE_CHAIN_ID,
       verifyingContract: config.claimContractAddress,
     },
@@ -283,13 +426,16 @@ async function loadUsdPrices(config: ClaimConfig): Promise<PriceSnapshot> {
 }
 
 export async function calculateClaimEconomics(params: {
+  task?: BlessingTask;
   gasEstimate: bigint;
   gasPriceWei: bigint;
 }) {
   const config = getConfig();
   const prices = await loadUsdPrices(config);
+  const task = params.task ?? "daily";
+  const rewardRaw = getTaskRewardRawFromConfig(config, task);
 
-  const rewardAmountDegen = Number(formatUnits(config.rewardAmountRaw, prices.tokenDecimals));
+  const rewardAmountDegen = Number(formatUnits(rewardRaw, prices.tokenDecimals));
   const gasCostEth = Number(formatEther(params.gasEstimate * params.gasPriceWei));
 
   const rewardUsd = rewardAmountDegen * prices.degenUsd;

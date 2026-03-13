@@ -6,8 +6,13 @@ interface IERC20 {
 }
 
 contract DailyBlessingDistributor {
+    uint8 public constant TASK_DAILY = 0;
+    uint8 public constant TASK_STREAK = 1;
+    uint8 public constant TASK_INVITE = 2;
+
     struct ClaimVoucher {
         address recipient;
+        uint8 task;
         uint256 amount;
         uint256 validAfter;
         uint256 validBefore;
@@ -20,21 +25,27 @@ contract DailyBlessingDistributor {
         );
     bytes32 private constant CLAIM_VOUCHER_TYPEHASH =
         keccak256(
-            "ClaimVoucher(address recipient,uint256 amount,uint256 validAfter,uint256 validBefore,uint256 nonce)"
+            "ClaimVoucher(address recipient,uint8 task,uint256 amount,uint256 validAfter,uint256 validBefore,uint256 nonce)"
         );
 
     IERC20 public immutable rewardToken;
-    uint256 public immutable rewardAmount;
-    string public constant NAME = "Nimbus Daily Blessing";
-    string public constant VERSION = "1";
+    string public constant NAME = "Nimbus Blessings";
+    string public constant VERSION = "2";
 
     address public owner;
     address public signer;
 
-    mapping(address => uint64) public lastClaimAt;
+    mapping(address => mapping(uint8 => uint64)) public lastClaimAtByTask;
+    mapping(uint256 => bool) public usedNonces;
     mapping(bytes32 => bool) public usedDigests;
 
-    event Claimed(address indexed user, uint256 amount, uint256 timestamp, uint256 nonce);
+    event Claimed(
+        address indexed user,
+        uint8 indexed task,
+        uint256 amount,
+        uint256 timestamp,
+        uint256 nonce
+    );
     event SignerUpdated(address indexed newSigner);
     event OwnerUpdated(address indexed newOwner);
 
@@ -43,15 +54,13 @@ contract DailyBlessingDistributor {
         _;
     }
 
-    constructor(address token, address signer_, uint256 rewardAmount_) {
+    constructor(address token, address signer_) {
         require(token != address(0), "token=0");
         require(signer_ != address(0), "signer=0");
-        require(rewardAmount_ > 0, "reward=0");
 
         rewardToken = IERC20(token);
         signer = signer_;
         owner = msg.sender;
-        rewardAmount = rewardAmount_;
     }
 
     function setSigner(address newSigner) external onlyOwner {
@@ -71,20 +80,41 @@ contract DailyBlessingDistributor {
         require(rewardToken.transfer(to, amount), "transfer failed");
     }
 
-    function nextClaimAt(address user) public view returns (uint256) {
-        uint256 last = lastClaimAt[user];
+    function nextClaimAt(address user, uint8 task) public view returns (uint256) {
+        if (!_taskUsesCooldown(task)) return 0;
+        uint256 last = lastClaimAtByTask[user][task];
         if (last == 0) return 0;
         return last + 1 days;
     }
 
+    function taskUsesCooldown(uint8 task) external pure returns (bool) {
+        return _taskUsesCooldown(task);
+    }
+
+    function nextClaimAt(address user) public view returns (uint256) {
+        return nextClaimAt(user, TASK_DAILY);
+    }
+
     function claim(ClaimVoucher calldata voucher, bytes calldata signature) external {
         require(msg.sender == voucher.recipient, "recipient mismatch");
-        require(voucher.amount == rewardAmount, "amount mismatch");
+        require(voucher.amount > 0, "amount=0");
+        require(
+            voucher.task == TASK_DAILY ||
+                voucher.task == TASK_STREAK ||
+                voucher.task == TASK_INVITE,
+            "bad task"
+        );
         require(block.timestamp >= voucher.validAfter, "voucher not active");
         require(block.timestamp <= voucher.validBefore, "voucher expired");
 
-        uint256 next = nextClaimAt(msg.sender);
-        require(next == 0 || block.timestamp >= next, "cooldown active");
+        if (_taskUsesCooldown(voucher.task)) {
+            uint256 next = nextClaimAt(msg.sender, voucher.task);
+            require(next == 0 || block.timestamp >= next, "cooldown active");
+            lastClaimAtByTask[msg.sender][voucher.task] = uint64(block.timestamp);
+        }
+
+        require(!usedNonces[voucher.nonce], "nonce already used");
+        usedNonces[voucher.nonce] = true;
 
         bytes32 digest = _digest(voucher);
         require(!usedDigests[digest], "voucher already used");
@@ -93,10 +123,9 @@ contract DailyBlessingDistributor {
         address recovered = _recoverSigner(digest, signature);
         require(recovered == signer, "invalid signature");
 
-        lastClaimAt[msg.sender] = uint64(block.timestamp);
         require(rewardToken.transfer(msg.sender, voucher.amount), "transfer failed");
 
-        emit Claimed(msg.sender, voucher.amount, block.timestamp, voucher.nonce);
+        emit Claimed(msg.sender, voucher.task, voucher.amount, block.timestamp, voucher.nonce);
     }
 
     function _domainSeparatorV4() internal view returns (bytes32) {
@@ -118,12 +147,20 @@ contract DailyBlessingDistributor {
                 abi.encode(
                     CLAIM_VOUCHER_TYPEHASH,
                     voucher.recipient,
+                    voucher.task,
                     voucher.amount,
                     voucher.validAfter,
                     voucher.validBefore,
                     voucher.nonce
                 )
             );
+    }
+
+    function _taskUsesCooldown(uint8 task) internal pure returns (bool) {
+        if (task == TASK_DAILY) return true;
+        if (task == TASK_STREAK) return true;
+        if (task == TASK_INVITE) return false;
+        revert("bad task");
     }
 
     function _digest(ClaimVoucher calldata voucher) internal view returns (bytes32) {

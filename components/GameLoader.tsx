@@ -43,6 +43,13 @@ export default function GameLoader() {
   const [gameKey, setGameKey] = useState(0);
   const [socialFriends, setSocialFriends] = useState<SocialFriend[]>([]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    if (!ref || !/^\\d+$/.test(ref)) return;
+    window.localStorage.setItem("nimbus_ascent:referrer_fid", ref);
+  }, []);
+
   // Fetch social friends strictly from user's following list.
   useEffect(() => {
     if (!user) {

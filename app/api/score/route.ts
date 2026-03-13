@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ensureScoresTable, getSqlClient } from "../../../lib/server/storage";
+import {
+  ensureRewardTables,
+  ensureScoresTable,
+  getSqlClient,
+} from "../../../lib/server/storage";
 
 export const runtime = "nodejs";
 
@@ -52,11 +56,23 @@ function currentWeekKey(): string {
   return `${now.getFullYear()}-W${String(week).padStart(2, "0")}`;
 }
 
+function utcDayKey(ts: number): string {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+function isPreviousUtcDay(previousDay: string, currentDay: string): boolean {
+  const prevTime = Date.parse(`${previousDay}T00:00:00.000Z`);
+  const currTime = Date.parse(`${currentDay}T00:00:00.000Z`);
+  if (!Number.isFinite(prevTime) || !Number.isFinite(currTime)) return false;
+  return currTime - prevTime === 86400000;
+}
+
 // ─── POST: submit score ────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const sql = getSqlClient();
     await ensureScoresTable(sql);
+    await ensureRewardTables(sql);
 
     const body = await req.json();
     const {
@@ -69,6 +85,7 @@ export async function POST(req: NextRequest) {
       coinsCollected = 0,
       maxStage = 0,
       prayersUsed = 0,
+      referrerFid,
     } = body;
 
     if (!fid || typeof score !== "number") {
@@ -80,6 +97,7 @@ export async function POST(req: NextRequest) {
 
     const wk = currentWeekKey();
     const now = Date.now();
+    const dayKey = utcDayKey(now);
 
     const rows = (await sql`
       INSERT INTO scores
@@ -130,6 +148,52 @@ export async function POST(req: NextRequest) {
       timestamp: Number(row.timestamp),
       lastPlayedAt: Number(row.last_played_at),
     };
+
+    // Update per-user streak based on unique UTC play days.
+    const streakRows = (await sql`
+      SELECT streak_days, last_play_day
+      FROM player_streaks
+      WHERE fid = ${fid}
+      LIMIT 1
+    `) as Array<{ streak_days: number; last_play_day: string }>;
+
+    if (streakRows.length === 0) {
+      await sql`
+        INSERT INTO player_streaks (fid, streak_days, last_play_day, updated_at)
+        VALUES (${fid}, 1, ${dayKey}, ${now})
+        ON CONFLICT (fid) DO NOTHING
+      `;
+    } else {
+      const prev = streakRows[0];
+      if (prev.last_play_day !== dayKey) {
+        const nextStreak = isPreviousUtcDay(prev.last_play_day, dayKey)
+          ? Number(prev.streak_days || 0) + 1
+          : 1;
+        await sql`
+          UPDATE player_streaks
+          SET streak_days = ${nextStreak},
+              last_play_day = ${dayKey},
+              updated_at = ${now}
+          WHERE fid = ${fid}
+        `;
+      }
+    }
+
+    // Capture referral only on user's first recorded game.
+    const parsedReferrerFid =
+      typeof referrerFid === "number" ? referrerFid : Number(referrerFid ?? 0);
+    if (
+      Number.isInteger(parsedReferrerFid) &&
+      parsedReferrerFid > 0 &&
+      parsedReferrerFid !== fid &&
+      entry.gamesPlayed === 1
+    ) {
+      await sql`
+        INSERT INTO referrals (referred_fid, referrer_fid, created_at, created_day)
+        VALUES (${fid}, ${parsedReferrerFid}, ${now}, ${dayKey})
+        ON CONFLICT (referred_fid) DO NOTHING
+      `;
+    }
 
     return NextResponse.json(
       {

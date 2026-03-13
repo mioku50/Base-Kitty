@@ -4,6 +4,7 @@ export type NeonSql = ReturnType<typeof neon>;
 
 let scoresEnsured = false;
 let notificationEnsured = false;
+let rewardTablesEnsured = false;
 
 export function getSqlClient(): NeonSql {
   const databaseUrl = process.env.DATABASE_URL;
@@ -61,4 +62,38 @@ export async function ensureNotificationTable(sql: NeonSql) {
   await sql`ALTER TABLE miniapp_notifications ADD COLUMN IF NOT EXISTS last_notified_utc_date TEXT NOT NULL DEFAULT ''`;
 
   notificationEnsured = true;
+}
+
+export async function ensureRewardTables(sql: NeonSql) {
+  if (rewardTablesEnsured) return;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS player_streaks (
+      fid INTEGER PRIMARY KEY,
+      streak_days INTEGER NOT NULL DEFAULT 0,
+      last_play_day TEXT NOT NULL DEFAULT '',
+      updated_at BIGINT NOT NULL DEFAULT 0
+    )
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS referrals (
+      referred_fid INTEGER PRIMARY KEY,
+      referrer_fid INTEGER NOT NULL,
+      created_at BIGINT NOT NULL DEFAULT 0,
+      created_day TEXT NOT NULL DEFAULT ''
+    )
+  `;
+
+  await sql`ALTER TABLE player_streaks ADD COLUMN IF NOT EXISTS streak_days INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE player_streaks ADD COLUMN IF NOT EXISTS last_play_day TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE player_streaks ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0`;
+
+  await sql`ALTER TABLE referrals ADD COLUMN IF NOT EXISTS referrer_fid INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE referrals ADD COLUMN IF NOT EXISTS created_at BIGINT NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE referrals ADD COLUMN IF NOT EXISTS created_day TEXT NOT NULL DEFAULT ''`;
+
+  await sql`CREATE INDEX IF NOT EXISTS referrals_referrer_idx ON referrals (referrer_fid, created_at DESC)`;
+
+  rewardTablesEnsured = true;
 }

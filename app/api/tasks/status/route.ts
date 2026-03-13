@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   buildDailyTaskNonce,
-  buildSignedClaim,
-  calculateClaimEconomics,
-  estimateClaimGas,
-  getCurrentGasPriceWei,
   getNextClaimAt,
   isAddressLike,
   isClaimNonceUsed,
@@ -25,8 +21,6 @@ type TaskReason =
   | "play_required"
   | "wallet_required"
   | "cooldown"
-  | "gas_too_high"
-  | "price_unavailable"
   | "invite_required";
 
 type TaskStatus = {
@@ -98,28 +92,8 @@ export async function GET(req: NextRequest) {
       if (nextClaimAt > nowSec) {
         share.reason = "cooldown";
       } else {
-        try {
-          const signedClaim = await buildSignedClaim(walletAddress, "share");
-          const gasEstimate = await estimateClaimGas(walletAddress, signedClaim.calldata);
-          const gasPriceWei = await getCurrentGasPriceWei();
-          const economics = await calculateClaimEconomics({
-            task: "share",
-            gasEstimate,
-            gasPriceWei,
-          });
-
-          share.rewardUsd = economics.rewardUsd;
-          share.estimatedGasUsd = economics.estimatedGasUsd;
-
-          if (economics.estimatedGasUsd >= economics.rewardUsd) {
-            share.reason = "gas_too_high";
-          } else {
-            share.eligible = true;
-            share.reason = "eligible";
-          }
-        } catch {
-          share.reason = "price_unavailable";
-        }
+        share.eligible = true;
+        share.reason = "eligible";
       }
     }
 
@@ -142,28 +116,8 @@ export async function GET(req: NextRequest) {
         invite.reason = "cooldown";
         invite.nextClaimAt = nextUtcDayStartEpochSeconds();
       } else {
-        try {
-          const signedClaim = await buildSignedClaim(walletAddress, "invite", inviteNonce);
-          const gasEstimate = await estimateClaimGas(walletAddress, signedClaim.calldata);
-          const gasPriceWei = await getCurrentGasPriceWei();
-          const economics = await calculateClaimEconomics({
-            task: "invite",
-            gasEstimate,
-            gasPriceWei,
-          });
-
-          invite.rewardUsd = economics.rewardUsd;
-          invite.estimatedGasUsd = economics.estimatedGasUsd;
-
-          if (economics.estimatedGasUsd >= economics.rewardUsd) {
-            invite.reason = "gas_too_high";
-          } else {
-            invite.eligible = true;
-            invite.reason = "eligible";
-          }
-        } catch {
-          invite.reason = "price_unavailable";
-        }
+        invite.eligible = true;
+        invite.reason = "eligible";
       }
     }
 

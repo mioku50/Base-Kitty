@@ -670,17 +670,13 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
 
   const shareClaimButtonText = useMemo(() => {
     if (taskClaimPending === "share") return "Claiming +1...";
-    if (shareTask?.eligible) return "Claim +1 $Degen";
-    return taskStatusLabel(shareTask?.reason ?? "play_required", shareTask?.nextClaimAt ?? null);
-  }, [shareTask, taskClaimPending]);
+    return "Claim +1 $Degen";
+  }, [taskClaimPending]);
 
   const inviteClaimButtonText = useMemo(() => {
     if (taskClaimPending === "invite") return "🎁 Claiming invite reward...";
-    if (inviteTask?.eligible && referredCount > 0) {
-      return "Claim +2 $Degen";
-    }
-    return taskStatusLabel(inviteTask?.reason ?? "invite_required", inviteTask?.nextClaimAt ?? null);
-  }, [inviteTask, referredCount, taskClaimPending]);
+    return "Claim +2 $Degen";
+  }, [taskClaimPending]);
 
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center z-50 overflow-hidden">

@@ -2,12 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   buildDailyTaskNonce,
   buildSignedClaim,
-  calculateClaimEconomics,
   claimCooldownSeconds,
-  estimateClaimGas,
   getBaseChainId,
   getClaimTxTarget,
-  getCurrentGasPriceWei,
   getNextClaimAt,
   getTaskRewardAmountRaw,
   getTaskRewardLabel,
@@ -29,8 +26,6 @@ export const runtime = "nodejs";
 type PrepareReason =
   | "play_required"
   | "cooldown"
-  | "gas_too_high"
-  | "price_unavailable"
   | "wallet_required"
   | "invite_required"
   | "task_invalid";
@@ -154,22 +149,6 @@ export async function POST(req: NextRequest) {
     }
 
     const signedClaim = await buildSignedClaim(walletAddress, task, nonceOverride);
-    const gasEstimate = await estimateClaimGas(walletAddress, signedClaim.calldata);
-    const gasPriceWei = await getCurrentGasPriceWei();
-
-    let economics;
-    try {
-      economics = await calculateClaimEconomics({ task, gasEstimate, gasPriceWei });
-    } catch {
-      return taskError("price_unavailable", "Reward/gas pricing unavailable", 503);
-    }
-
-    if (economics.estimatedGasUsd >= economics.rewardUsd) {
-      return taskError("gas_too_high", "Gas cost is higher than reward value", 409, {
-        estimatedGasUsd: economics.estimatedGasUsd,
-        rewardUsd: economics.rewardUsd,
-      });
-    }
 
     return noStoreJson({
       fid: auth.fid,
@@ -189,14 +168,6 @@ export async function POST(req: NextRequest) {
         validBefore: signedClaim.voucher.validBefore.toString(),
         nonce: signedClaim.voucher.nonce.toString(),
         signature: signedClaim.signature,
-      },
-      economics: {
-        rewardUsd: economics.rewardUsd,
-        estimatedGasUsd: economics.estimatedGasUsd,
-        gasEstimate: gasEstimate.toString(),
-        gasPriceWei: gasPriceWei.toString(),
-        ethUsd: economics.ethUsd,
-        degenUsd: economics.degenUsd,
       },
     });
   } catch (error: unknown) {

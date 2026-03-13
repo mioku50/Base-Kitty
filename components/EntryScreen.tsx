@@ -114,14 +114,16 @@ function statusLabel(reason: ClaimReason, nextClaimAt: number | null) {
 }
 
 export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
-  const { user, isSDKLoaded, signIn } = useFarcaster();
+  const { user, isSDKLoaded, signIn, composeCast } = useFarcaster();
 
   const [claimPending, setClaimPending] = useState(false);
   const [claimError, setClaimError] = useState("");
   const [claimTxHash, setClaimTxHash] = useState("");
   const [claimCallsId, setClaimCallsId] = useState("");
   const [claimStatus, setClaimStatus] = useState<ClaimStatusResponse | null>(null);
-  const [claimStatusText, setClaimStatusText] = useState("");
+  const [sharePending, setSharePending] = useState(false);
+  const [taskMessage, setTaskMessage] = useState("");
+  const [showBlessings, setShowBlessings] = useState(false);
 
   const [showPinPrompt, setShowPinPrompt] = useState(false);
   const [pinPending, setPinPending] = useState(false);
@@ -184,19 +186,8 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       const data = (await response.json()) as ClaimStatusResponse;
       setClaimStatus(data);
 
-      let text = statusLabel(data.reason, data.nextClaimAt);
-      if (
-        typeof data.rewardUsd === "number" &&
-        typeof data.estimatedGasUsd === "number"
-      ) {
-        text += ` • Reward $${data.rewardUsd.toFixed(3)} / Gas ~$${data.estimatedGasUsd.toFixed(
-          3
-        )}`;
-      }
-      setClaimStatusText(text);
     } catch (err) {
       setClaimStatus(null);
-      setClaimStatusText("");
       setClaimError(normalizeProviderError(err));
     }
   }, [isSDKLoaded, user]);
@@ -255,12 +246,6 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
             estimatedGasUsd:
               errorData.estimatedGasUsd ?? prev?.estimatedGasUsd ?? null,
           }));
-          setClaimStatusText(
-            statusLabel(
-              errorData.reason as ClaimReason,
-              errorData.nextClaimAt ?? claimStatus?.nextClaimAt ?? null
-            )
-          );
         }
 
         throw new Error(errorData.error || "Claim is unavailable");
@@ -357,7 +342,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     } finally {
       setClaimPending(false);
     }
-  }, [claimStatus?.nextClaimAt, fetchClaimStatus]);
+  }, [fetchClaimStatus]);
 
   useEffect(() => {
     if (!isSDKLoaded || typeof window === "undefined") return;
@@ -421,6 +406,91 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     }
   }, []);
 
+  const hasClaimSuccess = Boolean(claimTxHash || claimCallsId);
+
+  const blessingOgUrl = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const params = new URLSearchParams({
+      kind: "blessing",
+      username: user?.username || "angel",
+      reward: "10",
+    });
+    return `${window.location.origin}/api/og?${params.toString()}`;
+  }, [user?.username]);
+
+  const handleShareBlessingCard = useCallback(async () => {
+    if (sharePending) return;
+    setTaskMessage("");
+    setSharePending(true);
+    try {
+      const appUrl = typeof window !== "undefined" ? window.location.origin : "";
+      const text = "💙 I claimed my Daily Blessing in Nimbus Ascent. Angel vibes only.";
+      const embeds = [appUrl, blessingOgUrl].filter(Boolean);
+      await composeCast(text, { embeds });
+      setTaskMessage("Blessing card opened in composer ✓");
+    } catch (err) {
+      setTaskMessage(normalizeProviderError(err));
+    } finally {
+      setSharePending(false);
+    }
+  }, [blessingOgUrl, composeCast, sharePending]);
+
+  const handleShareBestScoreTask = useCallback(async () => {
+    if (!user) {
+      setTaskMessage("Sign in with Farcaster first");
+      return;
+    }
+    if (sharePending) return;
+    setTaskMessage("");
+    setSharePending(true);
+    try {
+      const appUrl = typeof window !== "undefined" ? window.location.origin : "";
+      const bestRaw =
+        typeof window !== "undefined"
+          ? window.localStorage.getItem(`nimbus_ascent:best:${user.fid}`) || "0"
+          : "0";
+      const bestScore = Math.max(0, Number(bestRaw) || 0);
+      const scoreParams = new URLSearchParams({
+        score: String(bestScore),
+        username: user.username || `fid:${user.fid}`,
+        stage: "2",
+      });
+      const scoreCardUrl = appUrl ? `${appUrl}/api/og?${scoreParams.toString()}` : "";
+      const text = `😺 My best score in Nimbus Ascent is ${bestScore.toLocaleString()} pts.`;
+      await composeCast(text, { embeds: [appUrl, scoreCardUrl].filter(Boolean) });
+      setTaskMessage("Score card opened in composer ✓ (+1 $Degen task)");
+    } catch (err) {
+      setTaskMessage(normalizeProviderError(err));
+    } finally {
+      setSharePending(false);
+    }
+  }, [composeCast, sharePending, user]);
+
+  const handleInviteFriendTask = useCallback(async () => {
+    if (!user) {
+      setTaskMessage("Sign in with Farcaster first");
+      return;
+    }
+    if (sharePending) return;
+    setTaskMessage("");
+    setSharePending(true);
+    try {
+      const appUrl = typeof window !== "undefined" ? window.location.origin : "";
+      const inviteUrl = appUrl ? `${appUrl}/?ref=${user.fid}` : "";
+      const text = "😇 Join Nimbus Ascent and claim Daily Blessings with me. +2 $Degen invite task.";
+      await composeCast(text, { embeds: [inviteUrl || appUrl].filter(Boolean) });
+      setTaskMessage("Invite opened in composer ✓");
+    } catch (err) {
+      setTaskMessage(normalizeProviderError(err));
+    } finally {
+      setSharePending(false);
+    }
+  }, [composeCast, sharePending, user]);
+
+  const handleShowStreakTask = useCallback(() => {
+    setTaskMessage("Streak bonuses: +1 $Degen reward, rare drops and UI skins.");
+  }, []);
+
   return (
     <div className="absolute inset-0 flex flex-col items-center justify-center z-50 overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-b from-[#1a0533] via-[#0d1b2a] to-[#0a0020]" />
@@ -464,6 +534,95 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
             </button>
           </div>
           {pinMessage && <p className="text-[11px] text-purple-200 mt-2">{pinMessage}</p>}
+        </div>
+      )}
+
+      <button
+        onClick={() => setShowBlessings(true)}
+        className="absolute top-3 right-3 z-20 px-3 py-2 rounded-xl border border-cyan-300/30 bg-cyan-500/15 text-cyan-100 text-xs font-black"
+      >
+        ✨ Tasks Blessings
+      </button>
+
+      {showBlessings && (
+        <div className="absolute inset-0 z-40 bg-black/70 backdrop-blur-sm p-3">
+          <div className="ml-auto w-full max-w-[320px] rounded-3xl border border-cyan-300/30 bg-gradient-to-b from-[#18073a] via-[#101a42] to-[#0a102e] p-4 shadow-2xl shadow-black/60">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-white font-black text-sm">✨ Tasks Blessings</h2>
+              <button
+                onClick={() => setShowBlessings(false)}
+                className="text-zinc-300 text-xs border border-white/20 rounded-lg px-2 py-1"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="w-full rounded-2xl border border-white/10 bg-white/5 p-3 mb-3 flex items-center gap-3">
+              {user?.pfpUrl ? (
+                <img
+                  src={user.pfpUrl}
+                  alt=""
+                  className="w-10 h-10 rounded-full border-2 border-cyan-300/40"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                  <KittyIcon size={22} />
+                </div>
+              )}
+              <div className="min-w-0">
+                <p className="text-white text-sm font-bold truncate">
+                  {user?.displayName || user?.username || "Guest Angel"}
+                </p>
+                <p className="text-cyan-200/80 text-xs truncate">
+                  @{user?.username || "sign-in-required"}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                onClick={handleClaim}
+                disabled={claimDisabled}
+                className="w-full rounded-2xl border border-emerald-300/40 bg-emerald-400/15 px-3 py-3 text-white text-sm font-black disabled:opacity-50"
+              >
+                ☁️ Claim Daily Blessing 10 $Degen 😇
+              </button>
+
+              <button
+                onClick={handleShowStreakTask}
+                className="w-full rounded-2xl border border-purple-300/35 bg-purple-500/15 px-3 py-3 text-white text-sm font-bold"
+              >
+                🔥 Streak Blessing (+1 $Degen)
+              </button>
+
+              <div className="rounded-xl border border-purple-300/20 bg-purple-500/10 px-3 py-2">
+                <p className="text-purple-100 text-xs font-bold">What gives today</p>
+                <p className="text-purple-200/90 text-[11px] mt-1">
+                  +1 token bonus, rare item drops, UI skin chance.
+                </p>
+              </div>
+
+              <button
+                onClick={handleShareBestScoreTask}
+                disabled={!user || sharePending}
+                className="w-full rounded-2xl border border-cyan-300/35 bg-cyan-500/15 px-3 py-3 text-white text-sm font-bold disabled:opacity-50"
+              >
+                💙 +1 $Degen • Share score card
+              </button>
+
+              <button
+                onClick={handleInviteFriendTask}
+                disabled={!user || sharePending}
+                className="w-full rounded-2xl border border-blue-300/35 bg-blue-500/15 px-3 py-3 text-white text-sm font-bold disabled:opacity-50"
+              >
+                🫂 Invite a friend (+2 $Degen)
+              </button>
+            </div>
+
+            {taskMessage && (
+              <p className="mt-3 text-[11px] text-cyan-100/90 text-center">{taskMessage}</p>
+            )}
+          </div>
         </div>
       )}
 
@@ -554,8 +713,43 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           Play once per day and claim your angel reward
         </p>
 
-        {claimStatusText && (
-          <p className="mt-1 text-[11px] text-emerald-200/80 text-center">{claimStatusText}</p>
+        {hasClaimSuccess && (
+          <div className="w-full mt-3 rounded-2xl overflow-hidden border border-cyan-300/35 bg-gradient-to-br from-[#19063b] via-[#0f2048] to-[#07233e] shadow-lg shadow-cyan-900/25">
+            <div className="relative px-4 py-4">
+              <div className="absolute -top-6 -right-6 w-20 h-20 rounded-full bg-cyan-300/20 blur-2xl" />
+              <div className="absolute -bottom-8 -left-6 w-20 h-20 rounded-full bg-purple-400/20 blur-2xl" />
+              <div className="relative flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-cyan-100 font-black text-sm leading-tight">
+                    💙 Daily Blessing Claimed
+                  </p>
+                  <p className="text-cyan-200/90 text-[11px] mt-1">
+                    Nimbus kitty holds your DEGEN heart.
+                  </p>
+                </div>
+                <div className="relative w-16 h-16 shrink-0">
+                  <Image
+                    src="/assets/kitty-hero.png"
+                    alt="Blessing kitty"
+                    fill
+                    style={{ objectFit: "contain" }}
+                  />
+                </div>
+              </div>
+              <div className="relative mt-3 flex justify-center">
+                <div className="px-3 py-1 rounded-full bg-cyan-400/20 border border-cyan-200/40 text-cyan-100 text-xs font-black">
+                  💙 DEGEN TOKEN
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={handleShareBlessingCard}
+              disabled={sharePending}
+              className="w-full py-2.5 text-sm font-black text-white bg-cyan-500/20 border-t border-cyan-300/30 disabled:opacity-50"
+            >
+              {sharePending ? "Sharing..." : "Share Blessing Card 💙"}
+            </button>
+          </div>
         )}
 
         {claimTxHash && (

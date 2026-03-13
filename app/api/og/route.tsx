@@ -5,16 +5,184 @@ export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
+  const kind = searchParams.get("kind") || "score";
   const scoreParam = searchParams.get("score");
   const hasScore = scoreParam !== null && scoreParam.trim() !== "";
   const score = hasScore ? scoreParam : "0";
   const username = searchParams.get("username") || "Anonymous";
+  const reward = searchParams.get("reward") || "10";
   const badges = (searchParams.get("badges") || "").split(",").filter(Boolean);
   const stage = Number(searchParams.get("stage") || "0");
   const assetBase = req.nextUrl.origin;
   const kittyHero = new URL("/assets/kitty-hero.png", assetBase).toString();
   const kittyFace = new URL("/assets/kitty-face.png", assetBase).toString();
   const coin = new URL("/assets/Based Energy Coin.PNG", assetBase).toString();
+
+  if (kind === "blessing") {
+    return new ImageResponse(
+      (
+        <div
+          style={{
+            width: "1200px",
+            height: "630px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background:
+              "radial-gradient(circle at 20% 15%, #3f2a8f 0%, #111f4a 35%, #07192d 100%)",
+            fontFamily: "sans-serif",
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          {[...Array(18)].map((_, i) => (
+            <div
+              key={i}
+              style={{
+                position: "absolute",
+                width: `${6 + (i % 4) * 3}px`,
+                height: `${6 + (i % 4) * 3}px`,
+                borderRadius: "50%",
+                background: "rgba(174, 238, 255, 0.6)",
+                top: `${15 + (i * 31) % 570}px`,
+                left: `${20 + (i * 67) % 1160}px`,
+              }}
+            />
+          ))}
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "14px",
+              marginBottom: "18px",
+            }}
+          >
+            <span style={{ fontSize: "54px" }}>☁️</span>
+            <span
+              style={{
+                fontSize: "56px",
+                fontWeight: 900,
+                color: "white",
+                letterSpacing: "-1px",
+              }}
+            >
+              Nimbus Ascent
+            </span>
+          </div>
+
+          <div
+            style={{
+              width: "980px",
+              borderRadius: "36px",
+              border: "2px solid rgba(158, 233, 255, 0.35)",
+              background:
+                "linear-gradient(135deg, rgba(38,67,173,0.25) 0%, rgba(22,87,145,0.25) 100%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "40px 58px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                maxWidth: "560px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "54px",
+                  fontWeight: 900,
+                  color: "#d9f6ff",
+                  lineHeight: 1.05,
+                }}
+              >
+                💙 Daily Blessing Claimed
+              </span>
+              <span
+                style={{
+                  marginTop: "12px",
+                  fontSize: "30px",
+                  color: "rgba(222,245,255,0.9)",
+                }}
+              >
+                @{username} unlocked {reward} $DEGEN
+              </span>
+              <span
+                style={{
+                  marginTop: "18px",
+                  fontSize: "26px",
+                  fontWeight: 700,
+                  color: "#c9e2ff",
+                }}
+              >
+                Nimbus kitty hugs a blue DEGEN heart
+              </span>
+            </div>
+
+            <div
+              style={{
+                width: "280px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <img
+                src={kittyHero}
+                width={220}
+                height={220}
+                style={{ objectFit: "contain" }}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "10px 18px",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(174, 238, 255, 0.55)",
+                  background: "rgba(40, 121, 193, 0.35)",
+                  color: "#e1f6ff",
+                  fontSize: "26px",
+                  fontWeight: 900,
+                }}
+              >
+                💙 DEGEN TOKEN
+              </div>
+            </div>
+          </div>
+
+          <div
+            style={{
+              marginTop: "26px",
+              display: "flex",
+              alignItems: "center",
+              gap: "10px",
+              background: "linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)",
+              borderRadius: "24px",
+              padding: "14px 36px",
+            }}
+          >
+            <img
+              src={kittyFace}
+              width={22}
+              height={22}
+              style={{ objectFit: "contain" }}
+            />
+            <span style={{ fontSize: "22px", fontWeight: 700, color: "white" }}>
+              Play in BaseApp
+            </span>
+          </div>
+        </div>
+      ),
+      { width: 1200, height: 630 }
+    );
+  }
 
   // Stage-dependent gradient
   const gradients = [

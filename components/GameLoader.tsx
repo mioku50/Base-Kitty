@@ -127,6 +127,11 @@ export default function GameLoader() {
     setScreen("leaderboard");
   }, []);
 
+  const handleMainMenu = useCallback(() => {
+    setLastStats(null);
+    setScreen("entry");
+  }, []);
+
   const handleBackFromLeaderboard = useCallback(() => {
     setScreen(lastStats ? "gameover" : "entry");
   }, [lastStats]);
@@ -140,6 +145,7 @@ export default function GameLoader() {
           onGameOver={handleGameOver}
           onRestart={handleRestart}
           onLeaderboard={handleLeaderboard}
+          onMainMenu={handleMainMenu}
           socialFriends={socialFriends}
         />
       )}

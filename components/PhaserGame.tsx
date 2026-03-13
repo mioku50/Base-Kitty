@@ -9,10 +9,17 @@ interface Props {
   onGameOver: (stats: GameStats) => void;
   onLeaderboard: () => void;
   onRestart: () => void;
+  onMainMenu: () => void;
   socialFriends?: SocialFriend[];
 }
 
-export default function PhaserGame({ onGameOver, onLeaderboard, onRestart, socialFriends = [] }: Props) {
+export default function PhaserGame({
+  onGameOver,
+  onLeaderboard,
+  onRestart,
+  onMainMenu,
+  socialFriends = [],
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<import("phaser").Game | null>(null);
   const [isPaused, setIsPaused] = useState(false);
@@ -89,6 +96,12 @@ export default function PhaserGame({ onGameOver, onLeaderboard, onRestart, socia
     onLeaderboard();
   }, [getScene, onLeaderboard]);
 
+  const handleMainMenuFromPause = useCallback(() => {
+    getScene()?.resumeGame();
+    setIsPaused(false);
+    onMainMenu();
+  }, [getScene, onMainMenu]);
+
   const handleToggleSound = useCallback(() => {
     setSoundEnabled((prev) => {
       const next = !prev;
@@ -108,6 +121,7 @@ export default function PhaserGame({ onGameOver, onLeaderboard, onRestart, socia
           onResume={handleResume}
           onRestart={handleRestartFromPause}
           onLeaderboard={handleLeaderboardFromPause}
+          onMainMenu={handleMainMenuFromPause}
           soundEnabled={soundEnabled}
           onToggleSound={handleToggleSound}
         />

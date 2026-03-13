@@ -4,6 +4,7 @@ interface Props {
   onResume: () => void;
   onRestart: () => void;
   onLeaderboard: () => void;
+  onMainMenu: () => void;
   soundEnabled: boolean;
   onToggleSound: () => void;
 }
@@ -12,6 +13,7 @@ export default function PauseMenu({
   onResume,
   onRestart,
   onLeaderboard,
+  onMainMenu,
   soundEnabled,
   onToggleSound,
 }: Props) {
@@ -49,6 +51,13 @@ export default function PauseMenu({
             className="w-full py-3 rounded-2xl font-bold text-white text-sm border border-white/15 hover:bg-white/8 active:scale-95 transition-all"
           >
             🏆 Leaderboard
+          </button>
+
+          <button
+            onClick={onMainMenu}
+            className="w-full py-3 rounded-2xl font-bold text-white text-sm border border-white/15 hover:bg-white/8 active:scale-95 transition-all"
+          >
+            🏠 Main Menu
           </button>
 
           <button

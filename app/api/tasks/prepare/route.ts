@@ -28,6 +28,7 @@ type PrepareReason =
   | "cooldown"
   | "wallet_required"
   | "invite_required"
+  | "items_required"
   | "task_invalid";
 
 function noStoreJson(payload: unknown, init?: ResponseInit) {
@@ -53,7 +54,7 @@ function taskError(
 }
 
 function asTask(value: unknown): BlessingTask | null {
-  if (value === "share" || value === "invite") return value;
+  if (value === "share" || value === "invite" || value === "streak") return value;
   return null;
 }
 
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
   const taskRaw = body && typeof body === "object" ? (body as Record<string, unknown>).task : null;
   const task = asTask(taskRaw);
   if (!task) {
-    return taskError("task_invalid", "Task must be 'share' or 'invite'", 400);
+    return taskError("task_invalid", "Task must be 'share', 'streak' or 'invite'", 400);
   }
 
   const walletRaw =
@@ -92,11 +93,11 @@ export async function POST(req: NextRequest) {
     await ensureRewardTables(sql);
 
     const scoreRows = (await sql`
-      SELECT last_played_at
+      SELECT last_played_at, last_run_items_collected
       FROM scores
       WHERE fid = ${auth.fid}
       LIMIT 1
-    `) as Array<{ last_played_at: number | string | null }>;
+    `) as Array<{ last_played_at: number | string | null; last_run_items_collected: number | string | null }>;
 
     const referralRows = (await sql`
       SELECT referred_fid
@@ -107,6 +108,7 @@ export async function POST(req: NextRequest) {
     `) as Array<{ referred_fid: number | string }>;
 
     const lastPlayedAt = Number(scoreRows[0]?.last_played_at ?? 0) || null;
+    const lastRunItemsCollected = Number(scoreRows[0]?.last_run_items_collected ?? 0) || 0;
     const referredCount = referralRows
       .map((row) => Number(row.referred_fid))
       .filter((fid) => Number.isInteger(fid) && fid > 0).length;
@@ -121,10 +123,37 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const nowSec = Math.floor(Date.now() / 1000);
-      const nextClaimAt = await getNextClaimAt(walletAddress, "share");
-      if (nextClaimAt > nowSec) {
+      const shareNonce = buildDailyTaskNonce("share", auth.fid);
+      const usedToday = await isClaimNonceUsed(shareNonce);
+      if (usedToday) {
         return taskError("cooldown", "Share reward is on cooldown", 409, {
+          nextClaimAt: nextUtcDayStartEpochSeconds(),
+          cooldownSeconds: claimCooldownSeconds(),
+        });
+      }
+
+      nonceOverride = shareNonce;
+    }
+
+    if (task === "streak") {
+      if (!isRunWithin24Hours(lastPlayedAt)) {
+        return taskError("play_required", "Play a run first", 409, {
+          rewardLabel: getTaskRewardLabel("streak"),
+          lastPlayedAt,
+        });
+      }
+
+      if (lastRunItemsCollected < 5) {
+        return taskError("items_required", "Collect at least 5 items in one run", 409, {
+          collectedItems: lastRunItemsCollected,
+          requiredItems: 5,
+        });
+      }
+
+      const nowSec = Math.floor(Date.now() / 1000);
+      const nextClaimAt = await getNextClaimAt(walletAddress, "streak");
+      if (nextClaimAt > nowSec) {
+        return taskError("cooldown", "Streak reward is on cooldown", 409, {
           nextClaimAt,
           cooldownSeconds: claimCooldownSeconds(),
         });

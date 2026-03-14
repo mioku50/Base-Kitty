@@ -24,6 +24,7 @@ type ClaimStatusResponse = {
   eligible: boolean;
   reason: ClaimReason;
   nextClaimAt: number | null;
+  rewardLabel?: string;
   rewardUsd: number | null;
   estimatedGasUsd: number | null;
 };
@@ -35,7 +36,8 @@ type TaskReason =
   | "cooldown"
   | "gas_too_high"
   | "price_unavailable"
-  | "invite_required";
+  | "invite_required"
+  | "items_required";
 
 type TaskStatus = {
   eligible: boolean;
@@ -47,7 +49,9 @@ type TaskStatus = {
 
 type TasksStatusResponse = {
   referredCount: number;
+  lastRunItemsCollected: number;
   share: TaskStatus;
+  streak: TaskStatus;
   invite: TaskStatus;
 };
 
@@ -155,6 +159,8 @@ function taskStatusLabel(reason: TaskReason, nextClaimAt: number | null) {
       return "Pricing unavailable";
     case "invite_required":
       return "Invite a friend first";
+    case "items_required":
+      return "Collect 5 items in one run";
     default:
       return "Unavailable";
   }
@@ -167,7 +173,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const [claimError, setClaimError] = useState("");
   const [claimTxHash, setClaimTxHash] = useState("");
   const [claimCallsId, setClaimCallsId] = useState("");
-  const [lastClaimTask, setLastClaimTask] = useState<"daily" | "share" | "invite" | null>(null);
+  const [lastClaimTask, setLastClaimTask] = useState<"daily" | "share" | "streak" | "invite" | null>(null);
   const [claimStatus, setClaimStatus] = useState<ClaimStatusResponse | null>(null);
   const [sharePending, setSharePending] = useState(false);
   const [shareTaskCastPending, setShareTaskCastPending] = useState(false);
@@ -175,13 +181,19 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const [taskMessage, setTaskMessage] = useState("");
   const [showBlessings, setShowBlessings] = useState(false);
   const [tasksStatus, setTasksStatus] = useState<TasksStatusResponse | null>(null);
-  const [taskClaimPending, setTaskClaimPending] = useState<"share" | "invite" | null>(null);
+  const [taskClaimPending, setTaskClaimPending] = useState<"share" | "streak" | "invite" | null>(null);
   const [shareTaskPrimed, setShareTaskPrimed] = useState(false);
   const [inviteTaskPrimed, setInviteTaskPrimed] = useState(false);
 
   const [showPinPrompt, setShowPinPrompt] = useState(false);
   const [pinPending, setPinPending] = useState(false);
   const [pinMessage, setPinMessage] = useState("");
+
+  const dailyRewardLabel = claimStatus?.rewardLabel ?? "5 $Degen";
+  const dailyRewardAmountDisplay = useMemo(() => {
+    const match = dailyRewardLabel.match(/^\s*([0-9]+(?:\.[0-9]+)?)/);
+    return match?.[1] || "5";
+  }, [dailyRewardLabel]);
 
   const openCastComposer = useCallback(
     async (text: string, embeds: string[]) => {
@@ -208,12 +220,12 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     }
     if (claimStatus) {
       if (claimStatus.eligible) {
-        return "☁️ Claim Daily Blessing 10 $Degen 😇";
+        return `☁️ Claim Daily Blessing ${dailyRewardLabel} 😇`;
       }
       return `☁️ ${statusLabel(claimStatus.reason, claimStatus.nextClaimAt)}`;
     }
-    return "☁️ Claim Daily Blessing 10 $Degen 😇";
-  }, [claimPending, claimStatus]);
+    return `☁️ Claim Daily Blessing ${dailyRewardLabel} 😇`;
+  }, [claimPending, claimStatus, dailyRewardLabel]);
 
   const claimDisabled =
     !isSDKLoaded ||
@@ -315,6 +327,13 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       // handled inside fetchTasksStatus
     });
   }, [fetchTasksStatus]);
+
+  useEffect(() => {
+    if (!showBlessings) return;
+    fetchTasksStatus().catch(() => {
+      // handled inside fetchTasksStatus
+    });
+  }, [fetchTasksStatus, showBlessings]);
 
   const sendClaimTransaction = useCallback(
     async (
@@ -477,7 +496,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   }, [fetchClaimStatus, fetchTasksStatus, sendClaimTransaction]);
 
   const handleTaskClaim = useCallback(
-    async (task: "share" | "invite") => {
+    async (task: "share" | "streak" | "invite") => {
       setTaskClaimPending(task);
       setTaskMessage("");
       setClaimError("");
@@ -519,7 +538,13 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         if (task === "share") {
           setShareTaskPrimed(false);
         }
-        setTaskMessage(task === "share" ? "Share reward claimed ✓" : "Invite reward claimed ✓");
+        if (task === "share") {
+          setTaskMessage("Share reward claimed ✓");
+        } else if (task === "streak") {
+          setTaskMessage("Streak reward claimed ✓");
+        } else {
+          setTaskMessage("Invite reward claimed ✓");
+        }
         await Promise.all([fetchClaimStatus(), fetchTasksStatus()]);
       } catch (err) {
         setTaskMessage(normalizeProviderError(err));
@@ -600,10 +625,10 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     const params = new URLSearchParams({
       kind: "blessing",
       username: user?.username || "angel",
-      reward: "10",
+      reward: dailyRewardAmountDisplay,
     });
     return `${window.location.origin}/api/og?${params.toString()}`;
-  }, [user?.username]);
+  }, [dailyRewardAmountDisplay, user?.username]);
 
   const handleShareBlessingCard = useCallback(async () => {
     if (sharePending) return;
@@ -690,19 +715,11 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     }
   }, [fetchTasksStatus, inviteTaskCastPending, openCastComposer, user]);
 
-  const handleShowStreakTask = useCallback(() => {
-    setTaskMessage("Streak perks are active in gameplay (rare drops and UI skins).");
-  }, []);
-
   const shareTask = tasksStatus?.share;
+  const streakTask = tasksStatus?.streak;
   const inviteTask = tasksStatus?.invite;
+  const lastRunItemsCollected = tasksStatus?.lastRunItemsCollected ?? 0;
   const referredCount = tasksStatus?.referredCount ?? 0;
-
-  const shareButtonHint = useMemo(() => {
-    if (!shareTask) return "Share score to claim +1 $Degen";
-    if (shareTask.eligible) return "Share score to claim +1 $Degen";
-    return taskStatusLabel(shareTask.reason, shareTask.nextClaimAt);
-  }, [shareTask]);
 
   const shareClaimButtonText = useMemo(() => {
     if (taskClaimPending === "share") return "Claiming +1...";
@@ -714,8 +731,22 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     return "Claim +2 $Degen";
   }, [taskClaimPending]);
 
+  const streakClaimButtonText = useMemo(() => {
+    if (taskClaimPending === "streak") return "Claiming +2...";
+    return "Claim +2 $Degen";
+  }, [taskClaimPending]);
+
+  const streakButtonLabel = useMemo(() => {
+    if (!streakTask) return `🔥 ${streakClaimButtonText}`;
+    if (streakTask.eligible) return `🔥 ${streakClaimButtonText}`;
+    return `🔥 ${taskStatusLabel(streakTask.reason, streakTask.nextClaimAt)}`;
+  }, [streakClaimButtonText, streakTask]);
+
   return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center z-50 overflow-hidden">
+    <div
+      className="absolute inset-0 flex flex-col items-center justify-start z-50 overflow-y-auto overflow-x-hidden pt-4 pb-6"
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}
+    >
       <div className="absolute inset-0 bg-gradient-to-b from-[#1a0533] via-[#0d1b2a] to-[#0a0020]" />
 
       <div className="absolute inset-0 pointer-events-none">
@@ -808,25 +839,33 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                 disabled={claimDisabled}
                 className="w-full rounded-2xl border border-emerald-300/40 bg-emerald-400/15 px-3 py-3 text-white text-sm font-black disabled:opacity-50"
               >
-                ☁️ Claim Daily Blessing 10 $Degen 😇
+                {`☁️ Claim Daily Blessing ${dailyRewardLabel} 😇`}
               </button>
 
               <button
-                onClick={handleShowStreakTask}
-                disabled={!user}
+                onClick={() => {
+                  handleTaskClaim("streak").catch(() => {
+                    // handled in callback
+                  });
+                }}
+                disabled={!user || !streakTask?.eligible || taskClaimPending !== null}
                 className="w-full rounded-2xl border border-purple-300/35 bg-purple-500/15 px-3 py-3 text-white text-sm font-bold disabled:opacity-50"
               >
-                🔥 Streak Blessings Perks
+                {streakButtonLabel}
               </button>
 
               <div className="rounded-xl border border-purple-300/20 bg-purple-500/10 px-3 py-2">
                 <p className="text-purple-100 text-xs font-bold">What gives today</p>
                 <p className="text-purple-200/90 text-[11px] mt-1">
-                  +1 token bonus, rare item drops, UI skin chance.
+                  Collect 5 items in one run to unlock streak reward +2 $Degen.
                 </p>
                 {tasksStatus && (
                   <p className="text-purple-200/80 text-[10px] mt-1">
-                    Share reward: {shareButtonHint} • Invites referred: {referredCount}
+                    Streak:{" "}
+                    {streakTask
+                      ? taskStatusLabel(streakTask.reason, streakTask.nextClaimAt)
+                      : "Checking..."}{" "}
+                    • Last run items: {lastRunItemsCollected}
                   </p>
                 )}
               </div>
@@ -913,7 +952,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         </div>
       )}
 
-      <div className="relative z-10 flex flex-col items-center px-6 w-full max-w-xs">
+      <div className="relative z-10 flex flex-col items-center px-6 pt-16 w-full max-w-xs">
         <div className="flex flex-col items-center mb-2">
           <span className="text-lg opacity-70">✨</span>
           <div className="relative w-[120px] h-[160px] mb-1">

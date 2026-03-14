@@ -21,7 +21,8 @@ type TaskReason =
   | "play_required"
   | "wallet_required"
   | "cooldown"
-  | "invite_required";
+  | "invite_required"
+  | "items_required";
 
 type TaskStatus = {
   eligible: boolean;
@@ -49,11 +50,11 @@ export async function GET(req: NextRequest) {
     await ensureRewardTables(sql);
 
     const scoreRows = (await sql`
-      SELECT last_played_at
+      SELECT last_played_at, last_run_items_collected
       FROM scores
       WHERE fid = ${auth.fid}
       LIMIT 1
-    `) as Array<{ last_played_at: number | string | null }>;
+    `) as Array<{ last_played_at: number | string | null; last_run_items_collected: number | string | null }>;
 
     const referralRows = (await sql`
       SELECT referred_fid
@@ -64,6 +65,7 @@ export async function GET(req: NextRequest) {
     `) as Array<{ referred_fid: number | string }>;
 
     const lastPlayedAt = Number(scoreRows[0]?.last_played_at ?? 0) || null;
+    const lastRunItemsCollected = Number(scoreRows[0]?.last_run_items_collected ?? 0) || 0;
     const runEligible = isRunWithin24Hours(lastPlayedAt);
     const referredCount = referralRows
       .map((row) => Number(row.referred_fid))
@@ -85,15 +87,40 @@ export async function GET(req: NextRequest) {
     } else if (!walletAddress) {
       share.reason = "wallet_required";
     } else {
-      const nowSec = Math.floor(Date.now() / 1000);
-      const nextClaimAt = await getNextClaimAt(walletAddress, "share");
-      share.nextClaimAt = nextClaimAt;
-
-      if (nextClaimAt > nowSec) {
+      const shareNonce = buildDailyTaskNonce("share", auth.fid);
+      const usedToday = await isClaimNonceUsed(shareNonce);
+      if (usedToday) {
         share.reason = "cooldown";
+        share.nextClaimAt = nextUtcDayStartEpochSeconds();
       } else {
         share.eligible = true;
         share.reason = "eligible";
+      }
+    }
+
+    const streak: TaskStatus = {
+      eligible: false,
+      reason: "play_required",
+      nextClaimAt: null,
+      rewardUsd: null,
+      estimatedGasUsd: null,
+    };
+
+    if (!runEligible) {
+      streak.reason = "play_required";
+    } else if (lastRunItemsCollected < 5) {
+      streak.reason = "items_required";
+    } else if (!walletAddress) {
+      streak.reason = "wallet_required";
+    } else {
+      const nowSec = Math.floor(Date.now() / 1000);
+      const nextClaimAt = await getNextClaimAt(walletAddress, "streak");
+      streak.nextClaimAt = nextClaimAt;
+      if (nextClaimAt > nowSec) {
+        streak.reason = "cooldown";
+      } else {
+        streak.eligible = true;
+        streak.reason = "eligible";
       }
     }
 
@@ -125,7 +152,9 @@ export async function GET(req: NextRequest) {
       fid: auth.fid,
       runEligible,
       lastPlayedAt,
+      lastRunItemsCollected,
       share,
+      streak,
       invite,
       referredCount,
     });

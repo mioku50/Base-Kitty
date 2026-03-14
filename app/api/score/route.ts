@@ -40,6 +40,7 @@ type ScoreRow = {
   games_played: number;
   timestamp: number | string;
   last_played_at: number | string;
+  last_run_items_collected: number;
 };
 
 function withNoStoreHeaders(init?: ResponseInit): ResponseInit {
@@ -102,11 +103,11 @@ export async function POST(req: NextRequest) {
     const rows = (await sql`
       INSERT INTO scores
         (fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
-         enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp, last_played_at)
+         enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp, last_played_at, last_run_items_collected)
       VALUES
         (${fid}, ${username || `fid:${fid}`}, ${displayName || `User ${fid}`},
          ${pfpUrl || ""}, ${score}, ${score}, ${wk},
-         ${enemiesKilled}, ${coinsCollected}, ${maxStage}, ${prayersUsed}, 1, ${now}, ${now})
+         ${enemiesKilled}, ${coinsCollected}, ${maxStage}, ${prayersUsed}, 1, ${now}, ${now}, ${coinsCollected})
       ON CONFLICT (fid) DO UPDATE SET
         username       = EXCLUDED.username,
         display_name   = EXCLUDED.display_name,
@@ -123,12 +124,13 @@ export async function POST(req: NextRequest) {
         prayers_used   = scores.prayers_used + ${prayersUsed},
         games_played   = scores.games_played + 1,
         last_played_at = ${now},
+        last_run_items_collected = ${coinsCollected},
         timestamp      = CASE
                            WHEN ${score} > scores.best_score THEN ${now}
                            ELSE scores.timestamp
                          END
       RETURNING best_score, weekly_score, week_key, enemies_killed, coins_collected,
-                max_stage, prayers_used, games_played, timestamp, last_played_at
+                max_stage, prayers_used, games_played, timestamp, last_played_at, last_run_items_collected
     `) as ScoreRow[];
 
     const row = rows[0];

@@ -26,7 +26,7 @@ export type BlessingTask = "daily" | "share" | "invite" | "streak";
 
 const TASK_ID = {
   daily: 0,
-  share: 1,
+  share: 2,
   streak: 1,
   invite: 2,
 } as const;
@@ -47,6 +47,7 @@ type ClaimConfig = {
   signerPrivateKey: `0x${string}`;
   dailyRewardAmountRaw: bigint;
   shareRewardAmountRaw: bigint;
+  streakRewardAmountRaw: bigint;
   inviteRewardAmountRaw: bigint;
 };
 
@@ -131,9 +132,14 @@ function getConfig(): ClaimConfig {
   );
   const shareRaw = parseRawAmount(
     process.env.SHARE_BLESSING_AMOUNT_RAW?.trim() ||
-      process.env.STREAK_BLESSING_AMOUNT_RAW?.trim() ||
       String(DEFAULT_SHARE_REWARD_RAW),
     "SHARE_BLESSING_AMOUNT_RAW"
+  );
+  const streakRaw = parseRawAmount(
+    process.env.STREAK_BLESSING_AMOUNT_RAW?.trim() ||
+      process.env.INVITE_BLESSING_AMOUNT_RAW?.trim() ||
+      String(DEFAULT_INVITE_REWARD_RAW),
+    "STREAK_BLESSING_AMOUNT_RAW"
   );
   const inviteRaw = parseRawAmount(
     process.env.INVITE_BLESSING_AMOUNT_RAW?.trim() || String(DEFAULT_INVITE_REWARD_RAW),
@@ -147,6 +153,7 @@ function getConfig(): ClaimConfig {
     signerPrivateKey: asPrivateKey(mustEnv("CLAIM_SIGNER_PRIVATE_KEY")),
     dailyRewardAmountRaw: dailyRaw,
     shareRewardAmountRaw: shareRaw,
+    streakRewardAmountRaw: streakRaw,
     inviteRewardAmountRaw: inviteRaw,
   };
 }
@@ -183,7 +190,8 @@ function getTaskId(task: BlessingTask) {
 
 function getTaskRewardRawFromConfig(config: ClaimConfig, task: BlessingTask) {
   if (task === "daily") return config.dailyRewardAmountRaw;
-  if (task === "share" || task === "streak") return config.shareRewardAmountRaw;
+  if (task === "share") return config.shareRewardAmountRaw;
+  if (task === "streak") return config.streakRewardAmountRaw;
   return config.inviteRewardAmountRaw;
 }
 
@@ -229,8 +237,13 @@ function currentUtcDayNumber(nowMs = Date.now()) {
   return Math.floor(nowMs / 86400000);
 }
 
-export function buildDailyTaskNonce(task: "share" | "invite", fid: number, day = currentUtcDayNumber()): bigint {
-  const prefix = BigInt(task === "share" ? 11 : 12) << BigInt(248);
+export function buildDailyTaskNonce(
+  task: "share" | "invite" | "streak",
+  fid: number,
+  day = currentUtcDayNumber()
+): bigint {
+  const taskPrefix = task === "share" ? 11 : task === "invite" ? 12 : 13;
+  const prefix = BigInt(taskPrefix) << BigInt(248);
   const dayPart = (BigInt(day) & ((BigInt(1) << BigInt(64)) - BigInt(1))) << BigInt(120);
   const fidPart = BigInt(fid) & ((BigInt(1) << BigInt(120)) - BigInt(1));
   return prefix | dayPart | fidPart;

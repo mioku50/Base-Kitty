@@ -585,11 +585,9 @@ export default class GameScene extends Phaser.Scene {
 
     if (score >= 500) multiplier *= 1.3;
     if (score >= 1000) multiplier *= 1.3;
-    if (score >= 1500) multiplier *= 1.3;
-    if (score >= 2000) {
-      const plusTenSteps = Math.floor((score - 2000) / 500) + 1;
-      multiplier *= Math.pow(1.1, plusTenSteps);
-    }
+    if (score >= 1500) multiplier *= 1.3 * 0.9; // soften drift by 10% at 1500+
+    if (score >= 2000) multiplier *= 0.9;       // additional 10% soften at 2000+
+    // Keep 2500+ at the same drift level as 2000+ (no further speed ramps).
 
     return multiplier;
   }

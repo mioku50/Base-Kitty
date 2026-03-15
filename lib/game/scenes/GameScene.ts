@@ -22,6 +22,8 @@ const CANDLE_INTERVAL_BASE = 2500;  // ms
 const CANDLE_INTERVAL_MIN = 1000;   // ms floor
 const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
+const AUTO_SHOOT_DETECT_RADIUS_Y = 280;
+const AUTO_SHOOT_DETECT_OFFSET_X = 80;
 const ENEMY_SPAWN_MULTIPLIER = 1 / 6; // reduce enemy density ~6x from original (~2x from current)
 const PRAYER_FILL_ENEMY = 20;    // prayer points per enemy kill (x10)
 const PRAYER_FILL_COIN  = 5;     // prayer points per coin
@@ -559,6 +561,33 @@ export default class GameScene extends Phaser.Scene {
     this.shootCooldownMs = 400;
   }
 
+  private hasAutoShootTarget(): boolean {
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body | undefined;
+    if (!playerBody) return false;
+    if (playerBody.velocity.y >= -20) return false;
+
+    const px = this.player.x;
+    const py = this.player.y;
+    let bestDeltaY = Number.POSITIVE_INFINITY;
+
+    this.enemies.getChildren().forEach((e) => {
+      const enemy = e as Phaser.Physics.Arcade.Sprite;
+      if (!enemy.active) return;
+
+      const dx = Math.abs(enemy.x - px);
+      if (dx > AUTO_SHOOT_DETECT_OFFSET_X) return;
+
+      const dy = py - enemy.y;
+      if (dy <= 0 || dy > AUTO_SHOOT_DETECT_RADIUS_Y) return;
+
+      if (dy < bestDeltaY) {
+        bestDeltaY = dy;
+      }
+    });
+
+    return Number.isFinite(bestDeltaY);
+  }
+
   // ─── Spawning helpers ─────────────────────────────────────────────────────
 
   private spawnStartingPlatform() {
@@ -998,6 +1027,10 @@ export default class GameScene extends Phaser.Scene {
     // Shoot cooldown
     if (this.shootCooldownMs > 0) {
       this.shootCooldownMs -= delta;
+    }
+
+    if (this.shootCooldownMs <= 0 && this.hasAutoShootTarget()) {
+      this.shootLove();
     }
 
     // Player texture based on velocity

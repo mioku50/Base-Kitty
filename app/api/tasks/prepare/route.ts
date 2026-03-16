@@ -6,10 +6,12 @@ import {
   getBaseChainId,
   getClaimTxTarget,
   getNextClaimAt,
+  getRpcFriendlyErrorMessage,
   getTaskRewardAmountRaw,
   getTaskRewardLabel,
   isAddressLike,
   isClaimNonceUsed,
+  isRpcRateLimitError,
   isRunWithin24Hours,
   nextUtcDayStartEpochSeconds,
   type BlessingTask,
@@ -200,8 +202,14 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Task preparation failed";
-    const status = message.includes("is not configured") ? 500 : 400;
+    const fallbackMessage =
+      error instanceof Error ? error.message : "Task preparation failed";
+    const message = getRpcFriendlyErrorMessage(error, fallbackMessage);
+    const status = isRpcRateLimitError(error)
+      ? 503
+      : message.includes("is not configured")
+        ? 500
+        : 400;
     return noStoreJson({ error: message }, { status });
   }
 }

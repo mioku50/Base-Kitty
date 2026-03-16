@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   buildDailyTaskNonce,
+  getRpcFriendlyErrorMessage,
   getNextClaimAt,
   isAddressLike,
   isClaimNonceUsed,
+  isRpcRateLimitError,
   isRunWithin24Hours,
   nextUtcDayStartEpochSeconds,
 } from "../../../../lib/server/claim";
@@ -159,7 +161,8 @@ export async function GET(req: NextRequest) {
       referredCount,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Task status unavailable";
-    return noStoreJson({ error: message }, { status: 500 });
+    const isRateLimit = isRpcRateLimitError(error);
+    const message = getRpcFriendlyErrorMessage(error, "Task status unavailable");
+    return noStoreJson({ error: message }, { status: isRateLimit ? 503 : 500 });
   }
 }

@@ -8,9 +8,11 @@ import {
   getClaimTxTarget,
   getCurrentGasPriceWei,
   getNextClaimAt,
+  getRpcFriendlyErrorMessage,
   getRewardAmountRaw,
   getRewardLabel,
   isAddressLike,
+  isRpcRateLimitError,
   isRunWithin24Hours,
 } from "../../../../lib/server/claim";
 import { verifyQuickAuthFromRequest } from "../../../../lib/server/farcasterAuth";
@@ -143,9 +145,13 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Claim preparation failed";
+    const fallbackMessage =
+      error instanceof Error ? error.message : "Claim preparation failed";
+    const message = getRpcFriendlyErrorMessage(error, fallbackMessage);
     const status =
-      message.includes("DATABASE_URL is not configured") ||
+      isRpcRateLimitError(error)
+        ? 503
+        : message.includes("DATABASE_URL is not configured") ||
       message.includes("is not configured")
         ? 500
         : 400;

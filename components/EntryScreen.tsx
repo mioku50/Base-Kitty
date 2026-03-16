@@ -84,14 +84,38 @@ function delay(ms: number) {
 }
 
 function normalizeProviderError(err: unknown): string {
-  if (err instanceof Error && err.message) return err.message;
-  if (typeof err === "string") return err;
-  if (err && typeof err === "object") {
+  let message = "";
+  if (err instanceof Error && err.message) {
+    message = err.message;
+  } else if (typeof err === "string") {
+    message = err;
+  } else if (err && typeof err === "object") {
     const e = err as Record<string, unknown>;
-    if (typeof e.message === "string") return e.message;
-    const cause = e.cause as Record<string, unknown> | undefined;
-    if (cause && typeof cause.message === "string") return cause.message;
+    if (typeof e.message === "string") {
+      message = e.message;
+    } else {
+      const cause = e.cause as Record<string, unknown> | undefined;
+      if (cause && typeof cause.message === "string") {
+        message = cause.message;
+      }
+    }
   }
+
+  if (message) {
+    const lower = message.toLowerCase();
+    if (
+      lower.includes("status: 429") ||
+      lower.includes("over rate limit") ||
+      lower.includes("rate limit")
+    ) {
+      return "Base RPC is busy right now. Please retry in a few seconds.";
+    }
+    if (lower.includes("raw call arguments") || lower.includes("contract call: address")) {
+      return "Blockchain RPC request failed. Please retry in a few seconds.";
+    }
+    return message;
+  }
+
   return "Failed to claim daily blessing";
 }
 
@@ -321,12 +345,6 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       setTaskMessage(normalizeProviderError(err));
     }
   }, [isSDKLoaded, user]);
-
-  useEffect(() => {
-    fetchTasksStatus().catch(() => {
-      // handled inside fetchTasksStatus
-    });
-  }, [fetchTasksStatus]);
 
   useEffect(() => {
     if (!showBlessings) return;

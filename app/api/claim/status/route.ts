@@ -3,11 +3,13 @@ import {
   buildSignedClaim,
   calculateClaimEconomics,
   estimateClaimGas,
+  getRpcFriendlyErrorMessage,
   getCurrentGasPriceWei,
   getNextClaimAt,
   getRewardAmountRaw,
   getRewardLabel,
   isAddressLike,
+  isRpcRateLimitError,
   isRunWithin24Hours,
 } from "../../../../lib/server/claim";
 import { verifyQuickAuthFromRequest } from "../../../../lib/server/farcasterAuth";
@@ -125,7 +127,8 @@ export async function GET(req: NextRequest) {
       estimatedGasUsd,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Claim status unavailable";
-    return noStoreJson({ error: message }, { status: 500 });
+    const isRateLimit = isRpcRateLimitError(error);
+    const message = getRpcFriendlyErrorMessage(error, "Claim status unavailable");
+    return noStoreJson({ error: message }, { status: isRateLimit ? 503 : 500 });
   }
 }

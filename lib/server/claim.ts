@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   createPublicClient,
   encodeFunctionData,
+  fallback,
   formatEther,
   formatUnits,
   http,
@@ -42,6 +43,7 @@ const erc20Abi = parseAbi(["function decimals() view returns (uint8)"]);
 
 type ClaimConfig = {
   baseRpcUrl: string;
+  baseRpcFallbackUrls: string[];
   claimContractAddress: Address;
   degenTokenAddress: Address;
   signerPrivateKey: `0x${string}`;
@@ -146,8 +148,14 @@ function getConfig(): ClaimConfig {
     "INVITE_BLESSING_AMOUNT_RAW"
   );
 
+  const fallbackUrls = (process.env.BASE_RPC_FALLBACK_URLS ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
   return {
     baseRpcUrl: mustEnv("BASE_RPC_URL"),
+    baseRpcFallbackUrls: fallbackUrls,
     claimContractAddress: asAddress(mustEnv("CLAIM_CONTRACT_ADDRESS"), "CLAIM_CONTRACT_ADDRESS"),
     degenTokenAddress: asAddress(mustEnv("DEGEN_TOKEN_ADDRESS"), "DEGEN_TOKEN_ADDRESS"),
     signerPrivateKey: asPrivateKey(mustEnv("CLAIM_SIGNER_PRIVATE_KEY")),
@@ -158,21 +166,53 @@ function getConfig(): ClaimConfig {
   };
 }
 
-function getPublicClient(baseRpcUrl: string): PublicClient {
-  if (publicClientCache?.rpc === baseRpcUrl) {
+function getPublicClient(config: ClaimConfig): PublicClient {
+  const rpcKey = [config.baseRpcUrl, ...config.baseRpcFallbackUrls].join(",");
+  if (publicClientCache?.rpc === rpcKey) {
     return publicClientCache.client;
   }
 
+  const transports = [
+    http(config.baseRpcUrl, { timeout: 10_000, retryCount: 1 }),
+    ...config.baseRpcFallbackUrls.map((url) => http(url, { timeout: 10_000, retryCount: 1 })),
+  ];
+
   const client = createPublicClient({
-    transport: http(baseRpcUrl),
+    transport: transports.length === 1 ? transports[0] : fallback(transports, { rank: false }),
   });
 
   publicClientCache = {
-    rpc: baseRpcUrl,
+    rpc: rpcKey,
     client,
   };
 
   return client;
+}
+
+export function isRpcRateLimitError(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : JSON.stringify(error ?? "");
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("status: 429") ||
+    lower.includes("http 429") ||
+    lower.includes("over rate limit") ||
+    lower.includes("rate limit")
+  );
+}
+
+export function getRpcFriendlyErrorMessage(
+  error: unknown,
+  fallbackMessage = "Blockchain RPC request failed"
+): string {
+  if (isRpcRateLimitError(error)) {
+    return "Base RPC is rate-limited right now. Please retry in a few seconds.";
+  }
+  return fallbackMessage;
 }
 
 function makeNonceBigInt(): bigint {
@@ -256,7 +296,7 @@ export function nextUtcDayStartEpochSeconds(nowMs = Date.now()) {
 
 export async function isClaimNonceUsed(nonce: bigint): Promise<boolean> {
   const config = getConfig();
-  const client = getPublicClient(config.baseRpcUrl);
+  const client = getPublicClient(config);
 
   return client.readContract({
     address: config.claimContractAddress,
@@ -268,7 +308,7 @@ export async function isClaimNonceUsed(nonce: bigint): Promise<boolean> {
 
 export async function getNextClaimAt(walletAddress: Address, task: BlessingTask = "daily"): Promise<number> {
   const config = getConfig();
-  const client = getPublicClient(config.baseRpcUrl);
+  const client = getPublicClient(config);
 
   try {
     const nextClaimAt = await client.readContract({
@@ -340,7 +380,7 @@ export async function buildSignedClaim(
 
 export async function estimateClaimGas(walletAddress: Address, calldata: `0x${string}`): Promise<bigint> {
   const config = getConfig();
-  const client = getPublicClient(config.baseRpcUrl);
+  const client = getPublicClient(config);
 
   return client.estimateGas({
     account: walletAddress,
@@ -352,7 +392,7 @@ export async function estimateClaimGas(walletAddress: Address, calldata: `0x${st
 
 export async function getCurrentGasPriceWei(): Promise<bigint> {
   const config = getConfig();
-  const client = getPublicClient(config.baseRpcUrl);
+  const client = getPublicClient(config);
   return client.getGasPrice();
 }
 
@@ -362,7 +402,7 @@ async function loadUsdPrices(config: ClaimConfig): Promise<PriceSnapshot> {
     return priceCache;
   }
 
-  const client = getPublicClient(config.baseRpcUrl);
+  const client = getPublicClient(config);
   const tokenDecimals = Number(
     await client.readContract({
       address: config.degenTokenAddress,

@@ -7,6 +7,8 @@ import KittyIcon from "./KittyIcon";
 import type { GameStats } from "../lib/game/types";
 import { sdk } from "@farcaster/miniapp-sdk";
 
+const REVIVE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
 interface Props {
   stats: GameStats;
   onRestart: () => void;
@@ -38,6 +40,14 @@ function BadgeIcon({ badge }: { badge: string }) {
   return <span>⭐</span>;
 }
 
+function formatTimeLeft(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${Math.max(1, minutes)}m`;
+}
+
 export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive }: Props) {
   const { user, composeCast } = useFarcaster();
   const [contextUser, setContextUser] = useState<{
@@ -47,13 +57,23 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
     pfpUrl?: string;
   } | null>(null);
   const [shared, setShared] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
   const [revived, setRevived] = useState(false);
+  const [reviveStatusLoading, setReviveStatusLoading] = useState(true);
+  const [reviveEligible, setReviveEligible] = useState(true);
+  const [reviveNextAt, setReviveNextAt] = useState<number | null>(null);
+  const [reviveError, setReviveError] = useState<string | null>(null);
+  const [nowTs, setNowTs] = useState(Date.now());
   const [bestScore, setBestScore] = useState(stats.score);
   const [badges, setBadges] = useState<string[]>([]);
   const isNewBest = stats.score >= bestScore;
   const effectiveUser = user || contextUser;
   const bestScoreKey = useMemo(
     () => `nimbus_ascent:best:${effectiveUser?.fid ?? "guest"}`,
+    [effectiveUser?.fid]
+  );
+  const reviveCooldownKey = useMemo(
+    () => `nimbus_ascent:revive_last:${effectiveUser?.fid ?? "guest"}`,
     [effectiveUser?.fid]
   );
 
@@ -87,6 +107,104 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
       mounted = false;
     };
   }, [user]);
+
+  useEffect(() => {
+    if (!reviveNextAt) return;
+    const timer = window.setInterval(() => {
+      setNowTs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [reviveNextAt]);
+
+  const getQuickAuthToken = useCallback(async () => {
+    try {
+      const { token } = await sdk.quickAuth.getToken();
+      return token;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const readLocalReviveState = useCallback(() => {
+    if (typeof window === "undefined") {
+      return { eligible: true, nextAt: null as number | null };
+    }
+    const lastReviveRaw = Number(window.localStorage.getItem(reviveCooldownKey) || 0);
+    const lastReviveAt = Number.isFinite(lastReviveRaw) ? lastReviveRaw : 0;
+    if (!lastReviveAt) {
+      return { eligible: true, nextAt: null as number | null };
+    }
+    const nextAt = lastReviveAt + REVIVE_COOLDOWN_MS;
+    return {
+      eligible: nextAt <= Date.now(),
+      nextAt,
+    };
+  }, [reviveCooldownKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const applyLocalFallback = () => {
+      const local = readLocalReviveState();
+      if (cancelled) return;
+      setReviveEligible(local.eligible);
+      setReviveNextAt(local.eligible ? null : local.nextAt);
+      setReviveStatusLoading(false);
+    };
+
+    const loadStatus = async () => {
+      setReviveStatusLoading(true);
+      setReviveError(null);
+
+      const token = await getQuickAuthToken();
+      if (!token) {
+        applyLocalFallback();
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/revive/status", {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-Control": "no-store",
+          },
+          cache: "no-store",
+        });
+
+        if (!res.ok) {
+          applyLocalFallback();
+          return;
+        }
+
+        const data = (await res.json()) as {
+          eligible?: boolean;
+          nextReviveAt?: number | null;
+          lastReviveAt?: number | null;
+        };
+
+        if (cancelled) return;
+
+        const eligible = Boolean(data.eligible);
+        const nextAt = typeof data.nextReviveAt === "number" ? data.nextReviveAt : null;
+        const lastAt = typeof data.lastReviveAt === "number" ? data.lastReviveAt : 0;
+        if (lastAt > 0 && typeof window !== "undefined") {
+          window.localStorage.setItem(reviveCooldownKey, String(lastAt));
+        }
+        setReviveEligible(eligible);
+        setReviveNextAt(eligible ? null : nextAt);
+        setReviveStatusLoading(false);
+      } catch {
+        applyLocalFallback();
+      }
+    };
+
+    loadStatus().catch(() => applyLocalFallback());
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getQuickAuthToken, readLocalReviveState, reviveCooldownKey]);
 
   // Submit score on mount
   useEffect(() => {
@@ -146,16 +264,97 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
   })();
 
   const handleShare = useCallback(async () => {
+    if (isSharing || reviveStatusLoading || !reviveEligible) return;
+
     const appUrl = typeof window !== "undefined" ? window.location.origin : "";
     const badgeText =
       badges.length > 0
         ? `\n${badges.slice(0, 3).map((b: string) => `😺 ${b}`).join(" ")}`
         : "";
     const text = `😺 I scored ${stats.score.toLocaleString()} in Nimbus Ascent!${badgeText}\n\nCan you beat me?`;
-    await composeCast(text, { embeds: [appUrl, ogUrl] });
-    setShared(true);
-    setTimeout(() => setRevived(true), 1200);
-  }, [stats.score, badges, composeCast, ogUrl]);
+    setReviveError(null);
+    setIsSharing(true);
+
+    try {
+      await composeCast(text, { embeds: [appUrl, ogUrl] });
+
+      const token = await getQuickAuthToken();
+      const localNow = Date.now();
+      let consumed = false;
+      let nextAt: number | null = localNow + REVIVE_COOLDOWN_MS;
+      let lastAt: number = localNow;
+
+      if (token) {
+        const res = await fetch("/api/revive/consume", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-Control": "no-store",
+          },
+        });
+
+        if (res.ok) {
+          const data = (await res.json()) as { nextReviveAt?: number; lastReviveAt?: number };
+          consumed = true;
+          nextAt = typeof data.nextReviveAt === "number" ? data.nextReviveAt : nextAt;
+          lastAt = typeof data.lastReviveAt === "number" ? data.lastReviveAt : localNow;
+        } else if (res.status === 409) {
+          const data = (await res.json().catch(() => ({}))) as { nextReviveAt?: number };
+          consumed = false;
+          nextAt = typeof data.nextReviveAt === "number" ? data.nextReviveAt : localNow + REVIVE_COOLDOWN_MS;
+        } else {
+          // If auth/routing is temporarily unavailable, fallback to local cooldown gating.
+          const local = readLocalReviveState();
+          consumed = local.eligible;
+          nextAt = local.nextAt;
+          lastAt = localNow;
+        }
+      } else {
+        const local = readLocalReviveState();
+        if (local.eligible) {
+          consumed = true;
+        } else {
+          consumed = false;
+          nextAt = local.nextAt;
+        }
+      }
+
+      if (!consumed) {
+        setReviveEligible(false);
+        setReviveNextAt(nextAt);
+        setReviveError("Revive is on cooldown. Available once every 24h.");
+        return;
+      }
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(reviveCooldownKey, String(lastAt));
+      }
+      setReviveEligible(false);
+      setReviveNextAt(nextAt);
+      setShared(true);
+      setTimeout(() => setRevived(true), 1200);
+    } catch {
+      setReviveError("Share failed. Please try again.");
+    } finally {
+      setIsSharing(false);
+    }
+  }, [
+    badges,
+    composeCast,
+    getQuickAuthToken,
+    isSharing,
+    ogUrl,
+    readLocalReviveState,
+    reviveCooldownKey,
+    reviveEligible,
+    reviveStatusLoading,
+    stats.score,
+  ]);
+
+  const reviveCooldownText =
+    reviveNextAt && reviveNextAt > nowTs
+      ? `Revive available in ${formatTimeLeft(reviveNextAt - nowTs)}`
+      : null;
 
   if (revived) {
     onRevive();
@@ -238,18 +437,33 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
 
       {/* Share to Revive */}
       {!shared ? (
-        <button
-          onClick={handleShare}
-          className="w-full max-w-xs py-3.5 px-6 rounded-2xl font-black text-white text-base mb-2 shadow-lg shadow-purple-500/25 active:scale-95 transition-transform"
-          style={{
-            background: "linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)",
-          }}
-        >
-          <span className="inline-flex items-center justify-center gap-2">
-            <KittyIcon size={18} />
-            Share to Farcaster → Revive!
-          </span>
-        </button>
+        <>
+          <button
+            onClick={handleShare}
+            disabled={isSharing || reviveStatusLoading || !reviveEligible}
+            className="w-full max-w-xs py-3.5 px-6 rounded-2xl font-black text-white text-base mb-2 shadow-lg shadow-purple-500/25 transition-transform disabled:opacity-60 disabled:cursor-not-allowed active:scale-95"
+            style={{
+              background: reviveEligible
+                ? "linear-gradient(135deg, #8B5CF6 0%, #3B82F6 100%)"
+                : "linear-gradient(135deg, #3f3f46 0%, #27272a 100%)",
+            }}
+          >
+            <span className="inline-flex items-center justify-center gap-2">
+              <KittyIcon size={18} />
+              {isSharing
+                ? "Sharing..."
+                : reviveStatusLoading
+                  ? "Checking revive..."
+                  : "Share to Farcaster → Revive!"}
+            </span>
+          </button>
+          {reviveCooldownText && (
+            <p className="text-xs text-zinc-300 mb-2">{reviveCooldownText}</p>
+          )}
+          {reviveError && (
+            <p className="text-xs text-rose-300 mb-2 text-center">{reviveError}</p>
+          )}
+        </>
       ) : (
         <div className="flex items-center gap-2 text-green-400 font-bold text-base mb-2">
           <span>✅ Shared! Reviving…</span>

@@ -210,7 +210,12 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.collider(
       this.player,
       this.cloudsNormal,
-      (p) => { asSprite(p).setVelocityY(PLAYER_BOUNCE); },
+      (p, plat) => {
+        const player = asSprite(p);
+        const cloud = asSprite(plat);
+        this.markSafeCheckpoint(player, cloud);
+        player.setVelocityY(PLAYER_BOUNCE);
+      },
       (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
     );
@@ -219,10 +224,13 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.collider(
       this.player,
       this.cloudsBouncy,
-      (p) => {
-        asSprite(p).setVelocityY(BOOST_BOUNCE);
-        asSprite(p).setTexture("rocket");
-        asSprite(p).setScale(85 / asSprite(p).height);
+      (p, plat) => {
+        const player = asSprite(p);
+        const cloud = asSprite(plat);
+        this.markSafeCheckpoint(player, cloud);
+        player.setVelocityY(BOOST_BOUNCE);
+        player.setTexture("rocket");
+        player.setScale(85 / player.height);
       },
       (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
@@ -233,6 +241,7 @@ export default class GameScene extends Phaser.Scene {
       this.player,
       this.cloudsFragile,
       (_p, plat) => {
+        this.markSafeCheckpoint(asSprite(_p), asSprite(plat));
         const sprite = plat as Phaser.Physics.Arcade.Sprite;
         const ext = sprite as unknown as { crumbling?: boolean };
         if (!ext.crumbling) {
@@ -389,7 +398,9 @@ export default class GameScene extends Phaser.Scene {
       (p, plat) => {
         const sprite = plat as Phaser.Physics.Arcade.Sprite;
         const username = sprite.getData('username') as string | undefined;
-        (p as Phaser.Physics.Arcade.Sprite).setVelocityY(BOOST_BOUNCE * 1.15);
+        const player = p as Phaser.Physics.Arcade.Sprite;
+        this.markSafeCheckpoint(player, sprite);
+        player.setVelocityY(BOOST_BOUNCE * 1.15);
         this.showBoostPopup(username || 'friend');
       },
       (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
@@ -556,6 +567,33 @@ export default class GameScene extends Phaser.Scene {
     this.moveDir = 0;
   }
 
+  private markSafeCheckpoint(
+    playerObj: Phaser.Physics.Arcade.Sprite,
+    cloudObj: Phaser.Physics.Arcade.Sprite
+  ) {
+    const cloudBody = cloudObj.body as Phaser.Physics.Arcade.StaticBody | Phaser.Physics.Arcade.Body | undefined;
+    if (cloudBody) {
+      this.lastSafeX = cloudBody.center.x;
+      this.lastSafeY = cloudBody.top - playerObj.displayHeight * 0.45;
+      return;
+    }
+    this.lastSafeX = playerObj.x;
+    this.lastSafeY = playerObj.y;
+  }
+
+  private spawnReviveCloud(x: number, y: number, width = 140, driftSpeed = 0) {
+    const safeX = Phaser.Math.Clamp(x, PLATFORM_WIDTH / 2 + 10, this.scale.width - PLATFORM_WIDTH / 2 - 10);
+    const plat = this.cloudsNormal.create(safeX, y, "cloud-normal") as Phaser.Physics.Arcade.Sprite;
+    plat.setDisplaySize(width, 45);
+    plat.setSize(width * 0.75, 10);
+    plat.setOffset(width * 0.125, 4);
+    plat.refreshBody();
+    plat.setDepth(2);
+    // Rescue cloud can be fixed or gently drifting.
+    plat.setData("driftSpeed", driftSpeed);
+    return plat;
+  }
+
   // ─── Shooting ─────────────────────────────────────────────────────────────
 
   private shootLove() {
@@ -674,8 +712,8 @@ export default class GameScene extends Phaser.Scene {
       platformDisplayWidth = 100;
       fragileChance = 0.20;
       enemyChance = 0.22 * ENEMY_SPAWN_MULTIPLIER;
-      // Stage 2: сохраняем ×2 (не уменьшать на хардкоре)
-      collectableChance = 0.20;
+      // Stage 2+: noticeably more collectibles after 1500+, with extra density after 2000+.
+      collectableChance = this.score < 2000 ? 0.28 : 0.34;
     }
 
     // Enemy spawn density ramps up by +20% every 500 score.
@@ -1001,24 +1039,67 @@ export default class GameScene extends Phaser.Scene {
     if (!this.isGameOver) return false;
 
     const camera = this.cameras.main;
+    const cameraTop = camera.scrollY;
+    const cameraBottom = camera.scrollY + camera.height;
     const reviveX = Phaser.Math.Clamp(
       this.lastSafeX || this.player.x || this.scale.width / 2,
       24,
       this.scale.width - 24
     );
-    const fallbackY = camera.scrollY + camera.height * 0.55;
-    const reviveY = Number.isFinite(this.lastSafeY) && this.lastSafeY > 0
-      ? Math.min(this.lastSafeY, camera.scrollY + camera.height - 90)
-      : fallbackY;
+    const fallbackY = cameraTop + camera.height * 0.58;
+    const candidateY = Number.isFinite(this.lastSafeY) ? this.lastSafeY : fallbackY;
+    // Keep revive position in visible safe zone so rescue clouds are reachable immediately.
+    const reviveY = Phaser.Math.Clamp(candidateY, cameraTop + 120, cameraBottom - 160);
 
     this.isGameOver = false;
     this.physics.resume();
-    this.player.setPosition(reviveX, reviveY);
-    this.player.setVelocity(0, BOOST_BOUNCE * 0.9);
-    this.player.setTexture("jump-up");
+    this.pointerDown = false;
+    this.moveDir = 0;
+
+    const stage = this.score < 500 ? 0 : this.score < 1500 ? 1 : 2;
+    const driftRange = CLOUD_DRIFT_SPEEDS[stage];
+    const driftMultiplier = this.getCloudDriftMultiplier(this.score);
+    const minDrift = Math.max(8, Math.round(driftRange.min * driftMultiplier * 0.6));
+    const maxDrift = Math.max(minDrift + 1, Math.round(driftRange.max * driftMultiplier * 0.6));
+    const backupDrift = Phaser.Math.Between(minDrift, maxDrift) * Phaser.Math.RND.pick([-1, 1]);
+
+    const primaryCloud = this.spawnReviveCloud(
+      reviveX,
+      reviveY + 72,
+      this.score >= 1500 ? 120 : 140
+    );
+    // Add one nearby backup cloud to avoid revive into empty space.
+    const backupOffset = Phaser.Math.RND.pick([-96, 96]);
+    this.spawnReviveCloud(
+      Phaser.Math.Clamp(
+        primaryCloud.x + backupOffset,
+        PLATFORM_WIDTH / 2 + 10,
+        this.scale.width - PLATFORM_WIDTH / 2 - 10
+      ),
+      reviveY + 58,
+      this.score >= 1500 ? 110 : 130,
+      backupDrift
+    );
+
+    // Rebuild a normal cloud lane around revive altitude so gameplay immediately continues.
+    this.nextPlatformY = Math.max(this.nextPlatformY, reviveY + 140);
+    const spawnUntilY = cameraTop - 220;
+    let spawnGuard = 0;
+    while (this.nextPlatformY > spawnUntilY && spawnGuard < 28) {
+      this.spawnPlatform();
+      spawnGuard++;
+    }
+
+    // Start slightly above the rescue cloud and let gravity drop into a guaranteed bounce.
+    const playerStartY = primaryCloud.y - 58;
+    this.player.setPosition(primaryCloud.x, playerStartY);
+    this.player.setVelocity(0, 120);
+    this.player.setTexture("fall-down");
     this.player.setScale(85 / this.player.height);
     this.player.setAlpha(1);
     this.reviveInvulnerabilityMs = 1500;
+    this.lastSafeX = primaryCloud.x;
+    this.lastSafeY = playerStartY;
 
     return true;
   }

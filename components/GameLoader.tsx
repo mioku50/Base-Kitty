@@ -41,6 +41,7 @@ export default function GameLoader() {
   const [screen, setScreen] = useState<Screen>("entry");
   const [lastStats, setLastStats] = useState<GameStats | null>(null);
   const [gameKey, setGameKey] = useState(0);
+  const [reviveSignal, setReviveSignal] = useState(0);
   const [socialFriends, setSocialFriends] = useState<SocialFriend[]>([]);
 
   useEffect(() => {
@@ -130,6 +131,12 @@ export default function GameLoader() {
     setScreen("playing");
   }, []);
 
+  const handleRevive = useCallback(() => {
+    setLastStats(null);
+    setReviveSignal((value) => value + 1);
+    setScreen("playing");
+  }, []);
+
   const handleLeaderboard = useCallback(() => {
     setScreen("leaderboard");
   }, []);
@@ -146,7 +153,7 @@ export default function GameLoader() {
   return (
     <div className="relative w-full h-full">
       {/* Phaser canvas — mounted while playing, keeps key for remounts */}
-      {screen === "playing" && (
+      {(screen === "playing" || screen === "gameover") && (
         <PhaserGame
           key={gameKey}
           onGameOver={handleGameOver}
@@ -154,6 +161,7 @@ export default function GameLoader() {
           onLeaderboard={handleLeaderboard}
           onMainMenu={handleMainMenu}
           socialFriends={socialFriends}
+          reviveSignal={reviveSignal}
         />
       )}
 
@@ -168,6 +176,7 @@ export default function GameLoader() {
           stats={lastStats}
           onRestart={handleRestart}
           onLeaderboard={handleLeaderboard}
+          onRevive={handleRevive}
         />
       )}
 

@@ -11,6 +11,7 @@ interface Props {
   onRestart: () => void;
   onMainMenu: () => void;
   socialFriends?: SocialFriend[];
+  reviveSignal?: number;
 }
 
 export default function PhaserGame({
@@ -19,6 +20,7 @@ export default function PhaserGame({
   onRestart,
   onMainMenu,
   socialFriends = [],
+  reviveSignal = 0,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const gameRef = useRef<import("phaser").Game | null>(null);
@@ -63,6 +65,13 @@ export default function PhaserGame({
     if (!scene) return;
     scene.setSocialFriends(socialFriends);
   }, [socialFriends, getScene]);
+
+  useEffect(() => {
+    if (!reviveSignal) return;
+    const scene = getScene();
+    if (!scene) return;
+    scene.reviveFromShare();
+  }, [getScene, reviveSignal]);
 
   useEffect(() => {
     const onResize = () => {

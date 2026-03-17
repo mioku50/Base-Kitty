@@ -11,6 +11,7 @@ interface Props {
   stats: GameStats;
   onRestart: () => void;
   onLeaderboard: () => void;
+  onRevive: () => void;
 }
 
 function CoinIcon({ size = 18, className = "" }: { size?: number; className?: string }) {
@@ -37,7 +38,7 @@ function BadgeIcon({ badge }: { badge: string }) {
   return <span>⭐</span>;
 }
 
-export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) {
+export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive }: Props) {
   const { user, composeCast } = useFarcaster();
   const [contextUser, setContextUser] = useState<{
     fid: number;
@@ -157,7 +158,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard }: Props) 
   }, [stats.score, badges, composeCast, ogUrl]);
 
   if (revived) {
-    onRestart();
+    onRevive();
     return null;
   }
 

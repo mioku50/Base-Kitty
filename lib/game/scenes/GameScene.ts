@@ -80,6 +80,9 @@ export default class GameScene extends Phaser.Scene {
   private avatarLoadQueued = new Set<string>();
   private boostPopupText?: Phaser.GameObjects.Text;
   private soundEnabled = true;
+  private reviveInvulnerabilityMs = 0;
+  private lastSafeX = 0;
+  private lastSafeY = 0;
   private onScaleResize = (gameSize: { width: number; height: number }) => {
     const width = gameSize.width;
     const height = gameSize.height;
@@ -135,6 +138,9 @@ export default class GameScene extends Phaser.Scene {
     this.moveDir = 0;
     this.pointerDown = false;
     this.lastSocialCloudPlatform = -999;
+    this.reviveInvulnerabilityMs = 0;
+    this.lastSafeX = 0;
+    this.lastSafeY = 0;
   }
 
   create() {
@@ -183,6 +189,8 @@ export default class GameScene extends Phaser.Scene {
     this.player.setGravityY(GRAVITY);
     this.player.setDepth(5);
     this.highestY = this.player.y;
+    this.lastSafeX = this.player.x;
+    this.lastSafeY = this.player.y;
 
     // Add soft glow to player so it always stands out against dark backgrounds
     if (this.player.preFX) {
@@ -281,7 +289,10 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.overlap(
       this.player,
       this.enemies,
-      () => { this.triggerGameOver(); },
+      () => {
+        if (this.reviveInvulnerabilityMs > 0) return;
+        this.triggerGameOver();
+      },
       undefined,
       this
     );
@@ -290,6 +301,7 @@ export default class GameScene extends Phaser.Scene {
       this.player,
       this.candles,
       (_p: PhysicsObj, candle: PhysicsObj) => {
+        if (this.reviveInvulnerabilityMs > 0) return;
         asSprite(candle).destroy();
         this.triggerGameOver();
       },
@@ -656,9 +668,9 @@ export default class GameScene extends Phaser.Scene {
       // Stage 1: ×1.5 от базового; Stage 1+: ×2 от базового
       collectableChance = this.score < 1000 ? 0.15 : 0.20;
     } else {
-      // Stage 2: Hard
-      spacingMin = 90;
-      spacingMax = 140;
+      // Stage 2: Hard (slightly denser clouds after 1500+)
+      spacingMin = 84;
+      spacingMax = 132;
       platformDisplayWidth = 100;
       fragileChance = 0.20;
       enemyChance = 0.22 * ENEMY_SPAWN_MULTIPLIER;
@@ -985,6 +997,32 @@ export default class GameScene extends Phaser.Scene {
     });
   }
 
+  reviveFromShare(): boolean {
+    if (!this.isGameOver) return false;
+
+    const camera = this.cameras.main;
+    const reviveX = Phaser.Math.Clamp(
+      this.lastSafeX || this.player.x || this.scale.width / 2,
+      24,
+      this.scale.width - 24
+    );
+    const fallbackY = camera.scrollY + camera.height * 0.55;
+    const reviveY = Number.isFinite(this.lastSafeY) && this.lastSafeY > 0
+      ? Math.min(this.lastSafeY, camera.scrollY + camera.height - 90)
+      : fallbackY;
+
+    this.isGameOver = false;
+    this.physics.resume();
+    this.player.setPosition(reviveX, reviveY);
+    this.player.setVelocity(0, BOOST_BOUNCE * 0.9);
+    this.player.setTexture("jump-up");
+    this.player.setScale(85 / this.player.height);
+    this.player.setAlpha(1);
+    this.reviveInvulnerabilityMs = 1500;
+
+    return true;
+  }
+
   // ─── Game Over ────────────────────────────────────────────────────────────
 
   private triggerGameOver() {
@@ -1029,6 +1067,16 @@ export default class GameScene extends Phaser.Scene {
       this.shootCooldownMs -= delta;
     }
 
+    if (this.reviveInvulnerabilityMs > 0) {
+      this.reviveInvulnerabilityMs -= delta;
+      const blink = Math.floor(this.reviveInvulnerabilityMs / 80) % 2 === 0;
+      this.player.setAlpha(blink ? 0.45 : 1);
+      if (this.reviveInvulnerabilityMs <= 0) {
+        this.reviveInvulnerabilityMs = 0;
+        this.player.setAlpha(1);
+      }
+    }
+
     if (this.shootCooldownMs <= 0 && this.hasAutoShootTarget()) {
       this.shootLove();
     }
@@ -1065,6 +1113,11 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const cameraBottom = cam.scrollY + cam.height;
+
+    if (this.player.y < cameraBottom - 24) {
+      this.lastSafeX = this.player.x;
+      this.lastSafeY = this.player.y;
+    }
 
     // Prayer super boost countdown
     if (this.prayerBoostMs > 0) {

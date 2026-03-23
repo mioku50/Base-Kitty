@@ -9,14 +9,138 @@ export async function GET(req: NextRequest) {
   const scoreParam = searchParams.get("score");
   const hasScore = scoreParam !== null && scoreParam.trim() !== "";
   const score = hasScore ? scoreParam : "0";
+  const scoreNumber = Number(score);
+  const scoreLabel = Number.isFinite(scoreNumber) ? scoreNumber.toLocaleString() : score;
   const username = searchParams.get("username") || "Anonymous";
   const reward = searchParams.get("reward") || "10";
+  const rank = searchParams.get("rank") || "unranked";
+  const mode = searchParams.get("mode") || "weekly";
+  const prize = searchParams.get("prize") || "10000";
+  const viral = searchParams.get("viral") || "Catch me in the clouds before I claim the season bag.";
   const badges = (searchParams.get("badges") || "").split(",").filter(Boolean);
   const stage = Number(searchParams.get("stage") || "0");
   const assetBase = req.nextUrl.origin;
   const kittyHero = new URL("/assets/kitty-hero.png", assetBase).toString();
   const kittyFace = new URL("/assets/kitty-face.png", assetBase).toString();
   const coin = new URL("/assets/Based Energy Coin.PNG", assetBase).toString();
+
+  if (kind === "leaderboard") {
+    const rankLabel = rank !== "unranked" ? `#${rank}` : "UNRANKED";
+    const modeLabel = mode === "alltime" ? "ALL-TIME" : mode === "friends" ? "FRIENDS" : "WEEKLY";
+    return new ImageResponse(
+      (
+        <div
+          style={{
+            width: "1200px",
+            height: "630px",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            background:
+              "radial-gradient(circle at 20% 18%, #4c2fc0 0%, #162564 42%, #0a132f 100%)",
+            fontFamily: "sans-serif",
+            position: "relative",
+            overflow: "hidden",
+          }}
+        >
+          {[...Array(18)].map((_, i) => (
+            <div
+              key={i}
+              style={{
+                position: "absolute",
+                width: `${5 + (i % 3) * 4}px`,
+                height: `${5 + (i % 3) * 4}px`,
+                borderRadius: "50%",
+                background: "rgba(180, 225, 255, 0.6)",
+                top: `${22 + (i * 31) % 580}px`,
+                left: `${20 + (i * 67) % 1160}px`,
+              }}
+            />
+          ))}
+
+          <div
+            style={{
+              width: "1030px",
+              borderRadius: "34px",
+              border: "2px solid rgba(164, 228, 255, 0.35)",
+              background:
+                "linear-gradient(135deg, rgba(22,59,145,0.3) 0%, rgba(42,26,112,0.45) 100%)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "38px 46px",
+              gap: "20px",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                maxWidth: "610px",
+              }}
+            >
+              <span style={{ fontSize: "30px", color: "#b9dfff", fontWeight: 800 }}>
+                ⚡ Nimbus Ascent Leaderboard
+              </span>
+              <span
+                style={{
+                  marginTop: "8px",
+                  fontSize: "84px",
+                  lineHeight: 0.95,
+                  fontWeight: 900,
+                  color: "#ffffff",
+                }}
+              >
+                {rankLabel}
+              </span>
+              <span style={{ marginTop: "6px", fontSize: "28px", color: "#d4f0ff" }}>
+                @{username} • {modeLabel}
+              </span>
+              <span style={{ marginTop: "8px", fontSize: "34px", color: "#ffffff", fontWeight: 700 }}>
+                {scoreLabel} pts
+              </span>
+              <span style={{ marginTop: "18px", fontSize: "24px", color: "#c8dcff", fontWeight: 700 }}>
+                SEASON 1 PRIZE POOL
+              </span>
+              <span style={{ marginTop: "2px", fontSize: "36px", color: "#f6d0ff", fontWeight: 900 }}>
+                {prize} токенов $Degen
+              </span>
+              <span style={{ marginTop: "14px", fontSize: "24px", color: "#d7eeff" }}>{viral}</span>
+            </div>
+
+            <div
+              style={{
+                width: "300px",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "10px",
+              }}
+            >
+              <img src={kittyHero} width={240} height={240} style={{ objectFit: "contain" }} />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(174, 238, 255, 0.55)",
+                  background: "rgba(38, 117, 196, 0.35)",
+                  padding: "10px 18px",
+                }}
+              >
+                <span style={{ fontSize: "25px", color: "#e1f6ff", fontWeight: 900 }}>
+                  Play in BaseApp
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      ),
+      { width: 1200, height: 630 }
+    );
+  }
 
   if (kind === "blessing") {
     return new ImageResponse(
@@ -287,17 +411,17 @@ export async function GET(req: NextRequest) {
                 gap: "12px",
               }}
             >
-              <span
-                style={{
-                  fontSize: "72px",
-                  fontWeight: 900,
-                  background: "linear-gradient(90deg, #a78bfa, #60a5fa, #34d399)",
-                  backgroundClip: "text",
-                  color: "transparent",
-                }}
-              >
-                {Number(score).toLocaleString()}
-              </span>
+                <span
+                  style={{
+                    fontSize: "72px",
+                    fontWeight: 900,
+                    background: "linear-gradient(90deg, #a78bfa, #60a5fa, #34d399)",
+                    backgroundClip: "text",
+                    color: "transparent",
+                  }}
+                >
+                  {scoreLabel}
+                </span>
               <span style={{ fontSize: "32px", color: "rgba(255,255,255,0.7)" }}>
                 pts
               </span>

@@ -49,11 +49,13 @@ function writeCachedEntries(mode: Mode, entries: LeaderboardEntry[]) {
 }
 
 export default function Leaderboard({ onBack }: Props) {
-  const { user } = useFarcaster();
+  const { user, composeCast } = useFarcaster();
   const [mode, setMode] = useState<Mode>("weekly");
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [friendFids, setFriendFids] = useState<number[]>([]);
+  const [sharePending, setSharePending] = useState(false);
+  const [shareMessage, setShareMessage] = useState<string | null>(null);
   const requestSeq = useRef(0);
 
   // Fetch friend FIDs from Neynar on mount
@@ -134,6 +136,49 @@ export default function Leaderboard({ onBack }: Props) {
     { key: "friends", label: "Friends", icon: <KittyIcon size={14} /> },
   ];
 
+  const myEntry = user ? entries.find((entry) => entry.fid === user.fid) : null;
+
+  const handleShareLeaderboard = useCallback(async () => {
+    if (!user || sharePending) return;
+
+    const appUrl =
+      (process.env.NEXT_PUBLIC_URL && process.env.NEXT_PUBLIC_URL.trim()) ||
+      (typeof window !== "undefined" ? window.location.origin : "");
+    if (!appUrl) {
+      setShareMessage("App URL is not configured");
+      return;
+    }
+
+    const modeLabel = mode === "alltime" ? "all-time" : mode === "friends" ? "friends" : "weekly";
+    const rankText = myEntry ? `#${myEntry.rank}` : "unranked";
+    const scoreText = myEntry ? myEntry.score.toLocaleString() : "0";
+
+    const params = new URLSearchParams({
+      kind: "leaderboard",
+      username: user.username || user.displayName || "player",
+      mode,
+      rank: myEntry ? String(myEntry.rank) : "unranked",
+      score: myEntry ? String(myEntry.score) : "0",
+      prize: "10000",
+      viral: "Catch me in the clouds before I claim the season bag.",
+    });
+    const ogUrl = `${appUrl}/api/og?${params.toString()}`;
+    const text = myEntry
+      ? `☁️ I’m ${rankText} in Nimbus Ascent ${modeLabel} leaderboard. Season 1 pool: 10000 токенов $Degen. Beat my ${scoreText} pts if you can 😼`
+      : "☁️ Nimbus Ascent Season 1 pool: 10000 токенов $Degen. I’m climbing the leaderboard now, jump in and try to pass me 😼";
+
+    setSharePending(true);
+    setShareMessage(null);
+    try {
+      await composeCast(text, { embeds: [appUrl, ogUrl] });
+      setShareMessage("Leaderboard card opened in composer ✓");
+    } catch {
+      setShareMessage("Failed to open composer");
+    } finally {
+      setSharePending(false);
+    }
+  }, [composeCast, mode, myEntry, sharePending, user]);
+
   return (
     <div className="absolute inset-0 flex flex-col bg-gradient-to-b from-[#1a0533] via-[#0d1b2a] to-[#0a0020] z-50 overflow-hidden">
       {/* Header */}
@@ -154,11 +199,37 @@ export default function Leaderboard({ onBack }: Props) {
           🏆 SEASON 1 PRIZE POOL
         </p>
         <p className="text-center text-purple-100 text-lg font-black tracking-wide">
-          10,000 $DEGEN
+          10000 токенов $Degen
         </p>
         <p className="text-center text-purple-300 text-xs font-semibold">
           For Top 10 players
         </p>
+      </div>
+
+      <div className="mx-4 mb-3 shrink-0 rounded-2xl border border-cyan-400/35 bg-cyan-500/10 px-3 py-2.5">
+        <p className="text-cyan-100 text-xs font-black text-center">
+          ⚡ Share your leaderboard card
+        </p>
+        <p className="mt-1 text-center text-white text-sm font-bold">
+          {myEntry ? `Your rank: #${myEntry.rank}` : "Your rank: Unranked (play more to enter Top 50)"}
+        </p>
+        <p className="text-center text-cyan-200 text-xs font-semibold mt-0.5">
+          Season 1: 10000 токенов $Degen
+        </p>
+        <button
+          onClick={() => {
+            handleShareLeaderboard().catch(() => {
+              setShareMessage("Failed to open composer");
+            });
+          }}
+          disabled={!user || sharePending}
+          className="mt-2 w-full rounded-xl border border-cyan-300/35 bg-cyan-500/20 py-2 text-sm font-black text-cyan-100 disabled:opacity-50"
+        >
+          {sharePending ? "Opening..." : "Share Rank Card 🚀"}
+        </button>
+        {shareMessage && (
+          <p className="mt-1 text-center text-[11px] text-cyan-200/90 font-semibold">{shareMessage}</p>
+        )}
       </div>
 
       {/* Tabs */}

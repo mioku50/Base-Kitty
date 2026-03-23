@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
                 SEASON 1 PRIZE POOL
               </span>
               <span style={{ marginTop: "2px", fontSize: "36px", color: "#f6d0ff", fontWeight: 900 }}>
-                {prize} токенов $Degen
+                {prize} $Degen tokens
               </span>
               <span style={{ marginTop: "14px", fontSize: "24px", color: "#d7eeff" }}>{viral}</span>
             </div>

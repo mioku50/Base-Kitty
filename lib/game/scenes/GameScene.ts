@@ -882,7 +882,7 @@ export default class GameScene extends Phaser.Scene {
       platformDisplayWidth = 130;
       fragileChance = 0;
       enemyChance = 0.10 * ENEMY_SPAWN_MULTIPLIER;
-      // Stage 0: базовый
+      // Stage 0: base collectible rate
       collectableChance = 0.10;
     } else if (this.score < 1500) {
       // Stage 1: Medium
@@ -891,7 +891,7 @@ export default class GameScene extends Phaser.Scene {
       platformDisplayWidth = 120;
       fragileChance = 0.12;
       enemyChance = 0.15 * ENEMY_SPAWN_MULTIPLIER;
-      // Stage 1: ×1.5 от базового; Stage 1+: ×2 от базового
+      // Stage 1: x1.5 from base, then x2 from base after 1000+
       collectableChance = this.score < 1000 ? 0.15 : 0.20;
     } else {
       // Stage 2: Hard (slightly denser clouds after 1500+)

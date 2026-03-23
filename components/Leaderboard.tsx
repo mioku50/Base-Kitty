@@ -164,8 +164,8 @@ export default function Leaderboard({ onBack }: Props) {
     });
     const ogUrl = `${appUrl}/api/og?${params.toString()}`;
     const text = myEntry
-      ? `☁️ I’m ${rankText} in Nimbus Ascent ${modeLabel} leaderboard. Season 1 pool: 10000 токенов $Degen. Beat my ${scoreText} pts if you can 😼`
-      : "☁️ Nimbus Ascent Season 1 pool: 10000 токенов $Degen. I’m climbing the leaderboard now, jump in and try to pass me 😼";
+      ? `☁️ I’m ${rankText} in Nimbus Ascent ${modeLabel} leaderboard. Season 1 pool: 10000 $Degen tokens. Beat my ${scoreText} pts if you can 😼`
+      : "☁️ Nimbus Ascent Season 1 pool: 10000 $Degen tokens. I’m climbing the leaderboard now, jump in and try to pass me 😼";
 
     setSharePending(true);
     setShareMessage(null);
@@ -199,10 +199,10 @@ export default function Leaderboard({ onBack }: Props) {
           🏆 SEASON 1 PRIZE POOL
         </p>
         <p className="text-center text-purple-100 text-lg font-black tracking-wide">
-          10000 токенов $Degen
+          10000 $Degen tokens
         </p>
         <p className="text-center text-purple-300 text-xs font-semibold">
-          For Top 10 players
+          For Top 3 players
         </p>
       </div>
 
@@ -214,7 +214,7 @@ export default function Leaderboard({ onBack }: Props) {
           {myEntry ? `Your rank: #${myEntry.rank}` : "Your rank: Unranked (play more to enter Top 50)"}
         </p>
         <p className="text-center text-cyan-200 text-xs font-semibold mt-0.5">
-          Season 1: 10000 токенов $Degen
+          Season 1: 10000 $Degen tokens
         </p>
         <button
           onClick={() => {

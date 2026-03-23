@@ -24,6 +24,7 @@ const COLLECTABLE_SCORE = 50;
 const ENEMY_SCORE = 100;
 const AUTO_SHOOT_DETECT_RADIUS_Y = 280;
 const AUTO_SHOOT_DETECT_OFFSET_X = 80;
+const COMBO_WORDS = ["REKT!", "LIGMA!", "GM!", "WAGMI!"];
 const ENEMY_SPAWN_MULTIPLIER = 1 / 6; // reduce enemy density ~6x from original (~2x from current)
 const PRAYER_FILL_ENEMY = 20;    // prayer points per enemy kill (x10)
 const PRAYER_FILL_COIN  = 5;     // prayer points per coin
@@ -83,6 +84,8 @@ export default class GameScene extends Phaser.Scene {
   private reviveInvulnerabilityMs = 0;
   private lastSafeX = 0;
   private lastSafeY = 0;
+  private ambientStars: Phaser.GameObjects.Arc[] = [];
+  private lastJumpBurstAt = 0;
   private onScaleResize = (gameSize: { width: number; height: number }) => {
     const width = gameSize.width;
     const height = gameSize.height;
@@ -108,6 +111,11 @@ export default class GameScene extends Phaser.Scene {
     this.prayerBtn.setPosition(width / 2, height - 38);
     this.pauseBtn.setPosition(width - 24, 24);
     this.shootBtn.setPosition(width - 28, height * SHOOT_BUTTON_Y_RATIO);
+
+    this.ambientStars.forEach((star) => {
+      if (star.x > width + 20) star.x = Phaser.Math.Between(0, width);
+      if (star.y > height + 20) star.y = Phaser.Math.Between(0, height);
+    });
   };
 
   constructor(onGameOver?: GameOverCallback, socialFriends?: SocialFriend[]) {
@@ -141,6 +149,7 @@ export default class GameScene extends Phaser.Scene {
     this.reviveInvulnerabilityMs = 0;
     this.lastSafeX = 0;
     this.lastSafeY = 0;
+    this.lastJumpBurstAt = 0;
   }
 
   create() {
@@ -157,6 +166,8 @@ export default class GameScene extends Phaser.Scene {
         .setVisible(i === 0);
       this.bgImages.push(img);
     });
+
+    this.createAtmosphereFx();
 
     // Physics world bounds (very tall)
     this.physics.world.setBounds(0, -99999, width, 100000 + height);
@@ -215,6 +226,7 @@ export default class GameScene extends Phaser.Scene {
         const cloud = asSprite(plat);
         this.markSafeCheckpoint(player, cloud);
         player.setVelocityY(PLAYER_BOUNCE);
+        this.emitJumpBurst(player.x, cloud.y - 8);
       },
       (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
@@ -231,6 +243,7 @@ export default class GameScene extends Phaser.Scene {
         player.setVelocityY(BOOST_BOUNCE);
         player.setTexture("rocket");
         player.setScale(85 / player.height);
+        this.emitJumpBurst(player.x, cloud.y - 10);
       },
       (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
@@ -248,6 +261,7 @@ export default class GameScene extends Phaser.Scene {
           ext.crumbling = true;
           // Give a tiny bounce so the player has a moment to react
           asSprite(_p).setVelocityY(PLAYER_BOUNCE * 0.3);
+          this.emitJumpBurst(asSprite(_p).x, sprite.y - 6);
           // Fast crumble: fade out in 200ms
           this.tweens.add({
             targets: sprite,
@@ -278,6 +292,8 @@ export default class GameScene extends Phaser.Scene {
         this.enemiesKilled++;
         this.addScore(50);
         this.addPrayer(PRAYER_FILL_ENEMY);
+        this.emitEnemyBurst(e.x, e.y - 6);
+        this.showComboPopup(e.x, e.y - 32);
       },
       undefined,
       this
@@ -286,7 +302,9 @@ export default class GameScene extends Phaser.Scene {
       this.player,
       this.collectables,
       (_p, sphere) => {
-        (sphere as Phaser.GameObjects.GameObject).destroy();
+        const collect = asSprite(sphere);
+        this.emitCoinBurst(collect.x, collect.y);
+        collect.destroy();
         this.coinsCollected++;
         this.addScore(COLLECTABLE_SCORE);
         this.addPrayer(PRAYER_FILL_COIN);
@@ -402,6 +420,7 @@ export default class GameScene extends Phaser.Scene {
         this.markSafeCheckpoint(player, sprite);
         player.setVelocityY(BOOST_BOUNCE * 1.15);
         this.showBoostPopup(username || 'friend');
+        this.emitJumpBurst(player.x, sprite.y - 10);
       },
       (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
@@ -439,6 +458,8 @@ export default class GameScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.scale.off("resize", this.onScaleResize);
       this.events.off(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate, this);
+      this.ambientStars.forEach((star) => star.destroy());
+      this.ambientStars = [];
     });
   }
 
@@ -540,6 +561,173 @@ export default class GameScene extends Phaser.Scene {
     this.driftCloudGroup(this.cloudsBouncy, delta, viewWidth, cloudsFrozen);
     this.driftCloudGroup(this.cloudsFragile, delta, viewWidth, cloudsFrozen);
     this.driftCloudGroup(this.cloudsSocial, delta, viewWidth, cloudsFrozen, true);
+    this.updateAtmosphere(delta);
+  }
+
+  // ─── Ambient FX ─────────────────────────────────────────────────────────────
+
+  private createAtmosphereFx() {
+    const width = this.scale.width;
+    const height = this.scale.height;
+
+    for (let i = 0; i < 16; i++) {
+      const star = this.add
+        .circle(
+          Phaser.Math.Between(0, width),
+          Phaser.Math.Between(0, height),
+          Phaser.Math.Between(1, 3),
+          Phaser.Math.RND.pick([0xbfe8ff, 0xcfa8ff, 0xffffff]),
+          Phaser.Math.FloatBetween(0.35, 0.9)
+        )
+        .setDepth(-7)
+        .setScrollFactor(0);
+
+      star.setData("driftSpeed", Phaser.Math.FloatBetween(6, 24));
+      this.ambientStars.push(star);
+
+      this.tweens.add({
+        targets: star,
+        alpha: { from: Phaser.Math.FloatBetween(0.25, 0.45), to: Phaser.Math.FloatBetween(0.7, 1) },
+        scale: { from: 0.7, to: 1.2 },
+        duration: Phaser.Math.Between(1300, 2800),
+        yoyo: true,
+        repeat: -1,
+        delay: Phaser.Math.Between(50, 900),
+      });
+    }
+
+    const scheduleNextComet = () => {
+      const delay = Phaser.Math.Between(5500, 9500);
+      this.time.delayedCall(delay, () => {
+        if (!this.scene.isActive()) return;
+        if (!this.isPaused && !this.isGameOver) {
+          this.spawnCometFx();
+        }
+        scheduleNextComet();
+      });
+    };
+
+    scheduleNextComet();
+  }
+
+  private updateAtmosphere(delta: number) {
+    const width = this.scale.width;
+    const height = this.scale.height;
+
+    this.ambientStars.forEach((star) => {
+      const driftSpeed = Number(star.getData("driftSpeed") ?? 0);
+      star.y += driftSpeed * (delta / 1000);
+      if (star.y > height + 12) {
+        star.y = -12;
+        star.x = Phaser.Math.Between(0, width);
+      }
+    });
+  }
+
+  private spawnCometFx() {
+    const width = this.scale.width;
+    const height = this.scale.height;
+    const fromLeft = Math.random() < 0.5;
+    const startX = fromLeft ? -70 : width + 70;
+    const endX = fromLeft ? width + 80 : -80;
+    const startY = Phaser.Math.Between(Math.floor(height * 0.08), Math.floor(height * 0.45));
+    const endY = startY + Phaser.Math.Between(60, 120);
+    const angle = fromLeft ? 0.35 : -0.35;
+
+    const comet = this.add
+      .ellipse(startX, startY, 14, 5, 0x9be7ff, 0.95)
+      .setDepth(-6)
+      .setScrollFactor(0)
+      .setRotation(angle);
+
+    const tail = this.add
+      .rectangle(startX + (fromLeft ? -20 : 20), startY + 2, 38, 2, 0x9be7ff, 0.35)
+      .setDepth(-7)
+      .setScrollFactor(0)
+      .setRotation(angle);
+
+    this.tweens.add({
+      targets: [comet, tail],
+      x: endX,
+      y: endY,
+      alpha: { from: 1, to: 0 },
+      duration: Phaser.Math.Between(1200, 1700),
+      ease: "Sine.easeIn",
+      onComplete: () => {
+        comet.destroy();
+        tail.destroy();
+      },
+    });
+  }
+
+  private emitBurstParticles(
+    x: number,
+    y: number,
+    palette: number[],
+    count: number,
+    spreadX: number,
+    spreadY: number,
+    lifetimeMs: number
+  ) {
+    for (let i = 0; i < count; i++) {
+      const particle = this.add
+        .circle(x, y, Phaser.Math.Between(2, 4), Phaser.Math.RND.pick(palette), 0.95)
+        .setDepth(7)
+        .setScrollFactor(1);
+      const vx = Phaser.Math.Between(-spreadX, spreadX);
+      const vy = Phaser.Math.Between(-spreadY, spreadY);
+
+      this.tweens.add({
+        targets: particle,
+        x: x + vx,
+        y: y + vy - Phaser.Math.Between(8, 26),
+        scale: { from: 1, to: 0.1 },
+        alpha: { from: 0.95, to: 0 },
+        duration: lifetimeMs + Phaser.Math.Between(-80, 120),
+        ease: "Cubic.easeOut",
+        onComplete: () => particle.destroy(),
+      });
+    }
+  }
+
+  private emitJumpBurst(x: number, y: number) {
+    const now = this.time.now;
+    if (now - this.lastJumpBurstAt < 110) return;
+    this.lastJumpBurstAt = now;
+    this.emitBurstParticles(x, y, [0xaee7ff, 0xdab8ff, 0xffffff], 10, 24, 20, 420);
+  }
+
+  private emitCoinBurst(x: number, y: number) {
+    this.emitBurstParticles(x, y, [0xfff18f, 0x88f0ff, 0xffd27a], 8, 18, 16, 360);
+  }
+
+  private emitEnemyBurst(x: number, y: number) {
+    this.emitBurstParticles(x, y, [0xff7ebd, 0xffd37a, 0xb0d2ff], 12, 28, 24, 460);
+  }
+
+  private showComboPopup(x: number, y: number) {
+    const comboText = Phaser.Math.RND.pick(COMBO_WORDS);
+    const popup = this.add
+      .text(x, y, comboText, {
+        fontSize: "20px",
+        fontStyle: "900",
+        color: "#ffe082",
+        stroke: "#2a0b46",
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setDepth(34)
+      .setAngle(Phaser.Math.Between(-8, 8));
+
+    this.tweens.add({
+      targets: popup,
+      alpha: { from: 1, to: 0 },
+      y: y - 34,
+      scale: { from: 0.92, to: 1.08 },
+      duration: 850,
+      ease: "Cubic.easeOut",
+      onComplete: () => popup.destroy(),
+    });
   }
 
   // ─── Input handlers ──────────────────────────────────────────────────────────
@@ -903,6 +1091,7 @@ export default class GameScene extends Phaser.Scene {
     this.player.setTexture("rocket");
     this.player.setScale(85 / this.player.height);
     this.showPrayerBoostPopup();
+    this.emitBurstParticles(this.player.x, this.player.y + 20, [0xffef99, 0xbce8ff, 0xf8c9ff], 16, 34, 26, 520);
     this.updatePrayerUI();
   }
 

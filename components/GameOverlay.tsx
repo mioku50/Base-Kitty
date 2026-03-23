@@ -487,7 +487,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
       </div>
 
       <p className="text-zinc-600 text-[10px] mb-2">
-        Top 10 weekly winners receive $mioku tokens!
+        Season 1 prize pool: 10,000 $DEGEN for Top 10 players.
       </p>
     </div>
   );

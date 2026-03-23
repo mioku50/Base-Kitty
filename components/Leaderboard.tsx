@@ -151,10 +151,10 @@ export default function Leaderboard({ onBack }: Props) {
       {/* Prize pool highlight */}
       <div className="mx-4 mb-3 shrink-0 rounded-2xl border border-purple-400/45 bg-purple-500/15 px-3 py-2.5 shadow-lg shadow-purple-900/25">
         <p className="text-center text-purple-200 text-sm font-black leading-tight">
-          🏆 END OF SEASON PRIZE POOL
+          🏆 SEASON 1 PRIZE POOL
         </p>
         <p className="text-center text-purple-100 text-lg font-black tracking-wide">
-          1,000,000 $mioku
+          10,000 $DEGEN
         </p>
         <p className="text-center text-purple-300 text-xs font-semibold">
           For Top 10 players

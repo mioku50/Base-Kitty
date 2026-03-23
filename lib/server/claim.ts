@@ -17,8 +17,9 @@ const BASE_CHAIN_ID = 8453;
 const CLAIM_COOLDOWN_SECONDS = 24 * 60 * 60;
 const CLAIM_VOUCHER_TTL_SECONDS = 10 * 60;
 const PRICE_CACHE_MS = 5 * 60 * 1000;
-const DEFAULT_SHARE_REWARD_RAW = BigInt("1000000000000000000");
-const DEFAULT_INVITE_REWARD_RAW = BigInt("2000000000000000000");
+const DEFAULT_SHARE_REWARD_RAW = BigInt("5000000000000000000");
+const DEFAULT_INVITE_REWARD_RAW = BigInt("5000000000000000000");
+const DEFAULT_STREAK_REWARD_RAW = BigInt("2000000000000000000");
 
 const EIP712_NAME = "Nimbus Blessings";
 const EIP712_VERSION = "2";
@@ -140,7 +141,7 @@ function getConfig(): ClaimConfig {
   const streakRaw = parseRawAmount(
     process.env.STREAK_BLESSING_AMOUNT_RAW?.trim() ||
       process.env.INVITE_BLESSING_AMOUNT_RAW?.trim() ||
-      String(DEFAULT_INVITE_REWARD_RAW),
+      String(DEFAULT_STREAK_REWARD_RAW),
     "STREAK_BLESSING_AMOUNT_RAW"
   );
   const inviteRaw = parseRawAmount(

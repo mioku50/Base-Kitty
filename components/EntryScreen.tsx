@@ -695,8 +695,8 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       setShareTaskPrimed(true);
       setTaskMessage(
         result === "timeout"
-          ? "Composer opened. Post the score card, then tap Claim +1 $Degen."
-          : "Score card shared ✓ now tap Claim +1 $Degen"
+          ? "Composer opened. Post the score card, then tap Claim +5 $Degen."
+          : "Score card shared ✓ now tap Claim +5 $Degen"
       );
       await fetchTasksStatus();
     } catch (err) {
@@ -717,13 +717,13 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     try {
       const appUrl = typeof window !== "undefined" ? window.location.origin : "";
       const inviteUrl = appUrl ? `${appUrl}/?ref=${user.fid}` : "";
-      const text = "😇 Join Nimbus Ascent and claim Daily Blessings with me. +2 $Degen invite task.";
+      const text = "😇 Join Nimbus Ascent and claim Daily Blessings with me. +5 $Degen invite task.";
       const result = await openCastComposer(text, [inviteUrl || appUrl].filter(Boolean));
       setInviteTaskPrimed(true);
       setTaskMessage(
         result === "timeout"
-          ? "Invite composer opened. After your friend plays, tap Claim +2 $Degen."
-          : "Invite shared ✓ after friend plays, tap Claim +2 $Degen"
+          ? "Invite composer opened. After your friend plays, tap Claim +5 $Degen."
+          : "Invite shared ✓ after friend plays, tap Claim +5 $Degen"
       );
       await fetchTasksStatus();
     } catch (err) {
@@ -740,18 +740,18 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const referredCount = tasksStatus?.referredCount ?? 0;
 
   const shareClaimButtonText = useMemo(() => {
-    if (taskClaimPending === "share") return "Claiming +1...";
-    return "Claim +1 $Degen";
+    if (taskClaimPending === "share") return "Claiming +5...";
+    return "Claim +5 $Degen";
   }, [taskClaimPending]);
 
   const inviteClaimButtonText = useMemo(() => {
-    if (taskClaimPending === "invite") return "🎁 Claiming invite reward...";
-    return "Claim +2 $Degen";
+    if (taskClaimPending === "invite") return "🎁 Claiming +5...";
+    return "Claim +5 $Degen";
   }, [taskClaimPending]);
 
   const streakClaimButtonText = useMemo(() => {
     if (taskClaimPending === "streak") return "Claiming +2...";
-    return "Claim +2 $Degen";
+    return "Claim +25 $Degen";
   }, [taskClaimPending]);
 
   const streakButtonLabel = useMemo(() => {
@@ -889,7 +889,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
               </div>
 
               <div className="rounded-xl border border-cyan-300/20 bg-cyan-500/10 px-3 py-3">
-                <p className="text-cyan-100 text-xs font-bold mb-2">💙 Share score card (+1 $Degen)</p>
+                <p className="text-cyan-100 text-xs font-bold mb-2">💙 Share score card (+5 $Degen)</p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={handleShareBestScoreTask}
@@ -924,7 +924,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
               </div>
 
               <div className="rounded-xl border border-blue-300/20 bg-blue-500/10 px-3 py-3">
-                <p className="text-blue-100 text-xs font-bold mb-2">🫂 Invite a friend (+2 $Degen)</p>
+                <p className="text-blue-100 text-xs font-bold mb-2">🫂 Invite a friend (+5 $Degen)</p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={() => {

@@ -751,7 +751,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
 
   const streakClaimButtonText = useMemo(() => {
     if (taskClaimPending === "streak") return "Claiming +2...";
-    return "Claim +25 $Degen";
+    return "Claim +2 $Degen";
   }, [taskClaimPending]);
 
   const streakButtonLabel = useMemo(() => {

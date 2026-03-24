@@ -39,6 +39,8 @@ export const metadata: Metadata = {
   },
   other: {
     "base:app_id": "69a595a077bc7576330f4ae7",
+    "talentapp:project_verification":
+      "aa6fb1b3935200c57cfe6644502a16f633c8f50f0730db37ab054edd41c41eb63fa1550fa7806a5c5cfb879b183513a07a3c1734dfb0f1d9a7bfd7839746fe18",
     "fc:miniapp": JSON.stringify({
       version: "next",
       imageUrl: OG_IMAGE_URL,

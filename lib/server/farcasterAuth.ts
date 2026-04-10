@@ -1,6 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { createClient, type JWTPayload } from "@farcaster/quick-auth";
-import { verifyMessage } from "viem";
+import {
+  createPublicClient,
+  hashMessage,
+  http,
+  verifyMessage,
+  type Hex,
+} from "viem";
+import { base } from "viem/chains";
 import { NextRequest } from "next/server";
 import {
   normalizeHexAddress,
@@ -12,6 +19,20 @@ const quickAuthClient = createClient();
 const WALLET_TOKEN_VERSION = "bk1";
 const WALLET_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
 const WALLET_SIGNIN_MAX_AGE_SECONDS = 15 * 60;
+const EIP1271_MAGIC_VALUE = "0x1626ba7e";
+
+const EIP1271_ABI = [
+  {
+    type: "function",
+    name: "isValidSignature",
+    stateMutability: "view",
+    inputs: [
+      { name: "hash", type: "bytes32" },
+      { name: "signature", type: "bytes" },
+    ],
+    outputs: [{ name: "magicValue", type: "bytes4" }],
+  },
+] as const;
 
 type WalletSessionPayload = {
   v: 1;
@@ -181,16 +202,71 @@ export async function verifyWalletSignInRequest(
     return { ok: false, status: 401, error: "Sign-in request expired" };
   }
 
+  const expectedMessageHex = `0x${Buffer.from(message, "utf8").toString("hex")}` as Hex;
+
   let valid = false;
   try {
     valid = await verifyMessage({
       address: walletAddress,
       message,
-      signature: signature as HexAddress,
+      signature: signature as Hex,
     });
   } catch {
     valid = false;
   }
+
+  // Some providers sign raw hex message payloads for personal_sign.
+  if (!valid) {
+    try {
+      valid = await verifyMessage({
+        address: walletAddress,
+        message: { raw: expectedMessageHex },
+        signature: signature as Hex,
+      });
+    } catch {
+      valid = false;
+    }
+  }
+
+  // Smart-wallet fallback via ERC-1271 (Base app wallets may use contract accounts).
+  if (!valid) {
+    const rpcUrl = process.env.BASE_RPC_URL?.trim();
+    if (rpcUrl) {
+      try {
+        const client = createPublicClient({
+          chain: base,
+          transport: http(rpcUrl),
+        });
+        const messageHashes: Hex[] = [
+          hashMessage(message),
+          hashMessage({ raw: expectedMessageHex }),
+        ];
+
+        for (const messageHash of messageHashes) {
+          try {
+            const result = await client.readContract({
+              address: walletAddress,
+              abi: EIP1271_ABI,
+              functionName: "isValidSignature",
+              args: [messageHash, signature as Hex],
+            });
+            if (
+              typeof result === "string" &&
+              result.toLowerCase() === EIP1271_MAGIC_VALUE
+            ) {
+              valid = true;
+              break;
+            }
+          } catch {
+            // Ignore and try next hash.
+          }
+        }
+      } catch {
+        // Ignore RPC issues and return default signature error.
+      }
+    }
+  }
+
   if (!valid) {
     return { ok: false, status: 401, error: "Invalid wallet signature" };
   }

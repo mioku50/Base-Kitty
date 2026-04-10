@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
-import { sdk } from "@farcaster/miniapp-sdk";
 import { useFarcaster } from "./FarcasterProvider";
 import KittyIcon from "./KittyIcon";
 
@@ -70,7 +69,6 @@ const BASE_CHAIN_ID = "0x2105";
 const CLAIM_STATUS_POLL_INTERVAL_MS = 900;
 const CLAIM_STATUS_POLL_ATTEMPTS = 10;
 const CAST_COMPOSER_TIMEOUT_MS = 12000;
-const PIN_PROMPT_STORAGE_KEY = "nimbus_ascent:pin_prompt_seen:v1";
 
 function asHexAddress(value: string | undefined): HexAddress | null {
   if (!value) return null;
@@ -191,7 +189,8 @@ function taskStatusLabel(reason: TaskReason, nextClaimAt: number | null) {
 }
 
 export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
-  const { user, isSDKLoaded, signIn, composeCast } = useFarcaster();
+  const { user, isSDKLoaded, signIn, composeCast, authToken, getEthereumProvider } =
+    useFarcaster();
 
   const [claimPending, setClaimPending] = useState(false);
   const [claimError, setClaimError] = useState("");
@@ -208,10 +207,6 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   const [taskClaimPending, setTaskClaimPending] = useState<"share" | "streak" | "invite" | null>(null);
   const [shareTaskPrimed, setShareTaskPrimed] = useState(false);
   const [inviteTaskPrimed, setInviteTaskPrimed] = useState(false);
-
-  const [showPinPrompt, setShowPinPrompt] = useState(false);
-  const [pinPending, setPinPending] = useState(false);
-  const [pinMessage, setPinMessage] = useState("");
 
   const dailyRewardLabel = claimStatus?.rewardLabel ?? "5 $Degen";
   const dailyRewardAmountDisplay = useMemo(() => {
@@ -258,13 +253,12 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     (claimStatus !== null && !claimStatus.eligible && claimStatus.reason !== "wallet_required");
 
   const fetchClaimStatus = useCallback(async () => {
-    if (!isSDKLoaded || !user) return;
+    if (!isSDKLoaded || !user || !authToken) return;
 
     setClaimError("");
 
     try {
-      const { token } = await sdk.quickAuth.getToken();
-      const provider = await sdk.wallet.getEthereumProvider();
+      const provider = await getEthereumProvider();
 
       let addressQuery = "";
       if (provider) {
@@ -280,7 +274,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       const response = await fetch(`/api/claim/status${addressQuery}`, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${authToken}`,
         },
         cache: "no-store",
       });
@@ -299,7 +293,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       setClaimStatus(null);
       setClaimError(normalizeProviderError(err));
     }
-  }, [isSDKLoaded, user]);
+  }, [authToken, getEthereumProvider, isSDKLoaded, user]);
 
   useEffect(() => {
     fetchClaimStatus().catch(() => {
@@ -308,11 +302,10 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   }, [fetchClaimStatus]);
 
   const fetchTasksStatus = useCallback(async () => {
-    if (!isSDKLoaded || !user) return;
+    if (!isSDKLoaded || !user || !authToken) return;
 
     try {
-      const { token } = await sdk.quickAuth.getToken();
-      const provider = await sdk.wallet.getEthereumProvider();
+      const provider = await getEthereumProvider();
 
       let addressQuery = "";
       if (provider) {
@@ -328,7 +321,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       const response = await fetch(`/api/tasks/status${addressQuery}`, {
         method: "GET",
         headers: {
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${authToken}`,
         },
         cache: "no-store",
       });
@@ -344,7 +337,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       setTasksStatus(null);
       setTaskMessage(normalizeProviderError(err));
     }
-  }, [isSDKLoaded, user]);
+  }, [authToken, getEthereumProvider, isSDKLoaded, user]);
 
   useEffect(() => {
     if (!showBlessings) return;
@@ -455,7 +448,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     setLastClaimTask("daily");
 
     try {
-      const provider = await sdk.wallet.getEthereumProvider();
+      const provider = await getEthereumProvider();
       if (!provider) {
         throw new Error("Wallet provider is unavailable in this client");
       }
@@ -468,12 +461,14 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         throw new Error("No wallet account is connected");
       }
 
-      const { token } = await sdk.quickAuth.getToken();
+      if (!authToken) {
+        throw new Error("Connect wallet first");
+      }
       const prepareResponse = await fetch("/api/claim/prepare", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${authToken}`,
         },
         body: JSON.stringify({ address: from }),
       });
@@ -511,7 +506,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     } finally {
       setClaimPending(false);
     }
-  }, [fetchClaimStatus, fetchTasksStatus, sendClaimTransaction]);
+  }, [authToken, fetchClaimStatus, fetchTasksStatus, getEthereumProvider, sendClaimTransaction]);
 
   const handleTaskClaim = useCallback(
     async (task: "share" | "streak" | "invite") => {
@@ -521,7 +516,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       setLastClaimTask(task);
 
       try {
-        const provider = await sdk.wallet.getEthereumProvider();
+        const provider = await getEthereumProvider();
         if (!provider) {
           throw new Error("Wallet provider is unavailable in this client");
         }
@@ -534,12 +529,14 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           throw new Error("No wallet account is connected");
         }
 
-        const { token } = await sdk.quickAuth.getToken();
+        if (!authToken) {
+          throw new Error("Connect wallet first");
+        }
         const response = await fetch("/api/tasks/prepare", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${authToken}`,
           },
           body: JSON.stringify({ task, address: from }),
         });
@@ -570,70 +567,14 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         setTaskClaimPending(null);
       }
     },
-    [fetchClaimStatus, fetchTasksStatus, sendClaimTransaction]
+    [
+      authToken,
+      fetchClaimStatus,
+      fetchTasksStatus,
+      getEthereumProvider,
+      sendClaimTransaction,
+    ]
   );
-
-  useEffect(() => {
-    if (!isSDKLoaded || typeof window === "undefined") return;
-    const alreadySeen = window.localStorage.getItem(PIN_PROMPT_STORAGE_KEY) === "1";
-    if (alreadySeen) return;
-
-    let cancelled = false;
-
-    const run = async () => {
-      try {
-        const inMiniApp = await sdk.isInMiniApp();
-        if (!inMiniApp || cancelled) return;
-
-        const ctx = await sdk.context;
-        if (cancelled) return;
-
-        if (ctx?.client?.added === false) {
-          setShowPinPrompt(true);
-          return;
-        }
-
-        window.localStorage.setItem(PIN_PROMPT_STORAGE_KEY, "1");
-      } catch {
-        // Ignore outside Mini App hosts.
-      }
-    };
-
-    run().catch(() => {
-      // ignore
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isSDKLoaded]);
-
-  const handleDismissPin = useCallback(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(PIN_PROMPT_STORAGE_KEY, "1");
-    }
-    setShowPinPrompt(false);
-  }, []);
-
-  const handleAddMiniApp = useCallback(async () => {
-    setPinPending(true);
-    setPinMessage("");
-
-    try {
-      await sdk.actions.addMiniApp();
-      setPinMessage("Mini App pinned ✓");
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(PIN_PROMPT_STORAGE_KEY, "1");
-      }
-      window.setTimeout(() => {
-        setShowPinPrompt(false);
-      }, 800);
-    } catch (err) {
-      setPinMessage(normalizeProviderError(err));
-    } finally {
-      setPinPending(false);
-    }
-  }, []);
 
   const hasClaimSuccess = Boolean(claimTxHash || claimCallsId);
   const hasDailyClaimSuccess = hasClaimSuccess && lastClaimTask === "daily";
@@ -671,7 +612,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
 
   const handleShareBestScoreTask = useCallback(async () => {
     if (!user) {
-      setTaskMessage("Sign in with Farcaster first");
+      setTaskMessage("Connect wallet first");
       return;
     }
     if (shareTaskCastPending) return;
@@ -708,7 +649,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
 
   const handleInviteFriendTask = useCallback(async () => {
     if (!user) {
-      setTaskMessage("Sign in with Farcaster first");
+      setTaskMessage("Connect wallet first");
       return;
     }
     if (inviteTaskCastPending) return;
@@ -783,31 +724,6 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           />
         ))}
       </div>
-
-      {showPinPrompt && (
-        <div className="absolute top-3 left-3 right-3 z-30 rounded-2xl border border-purple-300/40 bg-[#140728]/95 p-3 shadow-lg shadow-purple-900/30">
-          <p className="text-white text-sm font-bold">Pin Nimbus Ascent</p>
-          <p className="text-purple-200 text-xs mt-1">
-            Add Mini App to your launcher for faster daily claims.
-          </p>
-          <div className="mt-2 flex gap-2">
-            <button
-              onClick={handleAddMiniApp}
-              disabled={pinPending}
-              className="flex-1 py-2 rounded-xl text-xs font-bold text-white bg-purple-500/60 border border-purple-300/40 disabled:opacity-60"
-            >
-              {pinPending ? "Pinning..." : "📌 Pin Mini App"}
-            </button>
-            <button
-              onClick={handleDismissPin}
-              className="px-3 py-2 rounded-xl text-xs font-bold text-zinc-200 border border-white/15"
-            >
-              Later
-            </button>
-          </div>
-          {pinMessage && <p className="text-[11px] text-purple-200 mt-2">{pinMessage}</p>}
-        </div>
-      )}
 
       <button
         onClick={() => setShowBlessings(true)}
@@ -1019,12 +935,16 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           </div>
         ) : (
           <button
-            onClick={signIn}
+            onClick={() => {
+              signIn().catch((err) => {
+                setClaimError(normalizeProviderError(err));
+              });
+            }}
             disabled={!isSDKLoaded}
             className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 mb-5 flex items-center justify-center gap-2 hover:bg-white/10 transition-colors disabled:opacity-40"
           >
             <KittyIcon size={18} />
-            <span className="text-white font-semibold text-sm">Sign in with Farcaster</span>
+            <span className="text-white font-semibold text-sm">Connect Wallet</span>
           </button>
         )}
 
@@ -1121,7 +1041,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         {claimError && <p className="mt-2 text-red-300 text-xs text-center">{claimError}</p>}
 
         <p className="text-zinc-600 text-[10px] text-center mt-4">
-          Built on Base • Powered by Farcaster
+          Built on Base • Standard Web Wallet
         </p>
       </div>
     </div>

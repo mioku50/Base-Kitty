@@ -53,7 +53,7 @@ export default function GameLoader() {
 
   // Fetch social friends strictly from user's following list.
   useEffect(() => {
-    if (!user) {
+    if (!user || user.authType === "wallet") {
       setSocialFriends([]);
       return;
     }

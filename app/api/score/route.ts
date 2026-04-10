@@ -4,6 +4,7 @@ import {
   ensureScoresTable,
   getSqlClient,
 } from "../../../lib/server/storage";
+import { verifyQuickAuthFromRequest } from "../../../lib/server/farcasterAuth";
 
 export const runtime = "nodejs";
 
@@ -76,6 +77,14 @@ export async function POST(req: NextRequest) {
     await ensureRewardTables(sql);
 
     const body = await req.json();
+    const hasAuthHeader = req.headers.get("authorization")?.startsWith("Bearer ");
+    const auth = hasAuthHeader ? await verifyQuickAuthFromRequest(req) : null;
+    if (hasAuthHeader && auth && !auth.ok) {
+      return NextResponse.json(
+        { error: auth.error },
+        withNoStoreHeaders({ status: auth.status })
+      );
+    }
     const {
       fid,
       username,
@@ -89,7 +98,14 @@ export async function POST(req: NextRequest) {
       referrerFid,
     } = body;
 
-    if (!fid || typeof score !== "number") {
+    const resolvedFid = auth && auth.ok ? auth.fid : Number(fid);
+    const resolvedUsername =
+      (auth && auth.ok && auth.username) || username || `fid:${resolvedFid}`;
+    const resolvedDisplayName =
+      (auth && auth.ok && auth.displayName) || displayName || `User ${resolvedFid}`;
+    const resolvedPfpUrl = (auth && auth.ok && auth.pfpUrl) || pfpUrl || "";
+
+    if (!resolvedFid || typeof score !== "number") {
       return NextResponse.json(
         { error: "Invalid payload" },
         withNoStoreHeaders({ status: 400 })
@@ -105,8 +121,8 @@ export async function POST(req: NextRequest) {
         (fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
          enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp, last_played_at, last_run_items_collected)
       VALUES
-        (${fid}, ${username || `fid:${fid}`}, ${displayName || `User ${fid}`},
-         ${pfpUrl || ""}, ${score}, ${score}, ${wk},
+        (${resolvedFid}, ${resolvedUsername}, ${resolvedDisplayName},
+         ${resolvedPfpUrl}, ${score}, ${score}, ${wk},
          ${enemiesKilled}, ${coinsCollected}, ${maxStage}, ${prayersUsed}, 1, ${now}, ${now}, ${coinsCollected})
       ON CONFLICT (fid) DO UPDATE SET
         username       = EXCLUDED.username,
@@ -135,10 +151,10 @@ export async function POST(req: NextRequest) {
 
     const row = rows[0];
     const entry: ScoreEntry = {
-      fid,
-      username: username || `fid:${fid}`,
-      displayName: displayName || `User ${fid}`,
-      pfpUrl: pfpUrl || "",
+      fid: resolvedFid,
+      username: resolvedUsername,
+      displayName: resolvedDisplayName,
+      pfpUrl: resolvedPfpUrl,
       bestScore: row.best_score,
       weeklyScore: row.weekly_score,
       weekKey: row.week_key,
@@ -155,14 +171,14 @@ export async function POST(req: NextRequest) {
     const streakRows = (await sql`
       SELECT streak_days, last_play_day
       FROM player_streaks
-      WHERE fid = ${fid}
+      WHERE fid = ${resolvedFid}
       LIMIT 1
     `) as Array<{ streak_days: number; last_play_day: string }>;
 
     if (streakRows.length === 0) {
       await sql`
         INSERT INTO player_streaks (fid, streak_days, last_play_day, updated_at)
-        VALUES (${fid}, 1, ${dayKey}, ${now})
+        VALUES (${resolvedFid}, 1, ${dayKey}, ${now})
         ON CONFLICT (fid) DO NOTHING
       `;
     } else {
@@ -176,7 +192,7 @@ export async function POST(req: NextRequest) {
           SET streak_days = ${nextStreak},
               last_play_day = ${dayKey},
               updated_at = ${now}
-          WHERE fid = ${fid}
+          WHERE fid = ${resolvedFid}
         `;
       }
     }
@@ -187,12 +203,12 @@ export async function POST(req: NextRequest) {
     if (
       Number.isInteger(parsedReferrerFid) &&
       parsedReferrerFid > 0 &&
-      parsedReferrerFid !== fid &&
+      parsedReferrerFid !== resolvedFid &&
       entry.gamesPlayed === 1
     ) {
       await sql`
         INSERT INTO referrals (referred_fid, referrer_fid, created_at, created_day)
-        VALUES (${fid}, ${parsedReferrerFid}, ${now}, ${dayKey})
+        VALUES (${resolvedFid}, ${parsedReferrerFid}, ${now}, ${dayKey})
         ON CONFLICT (referred_fid) DO NOTHING
       `;
     }

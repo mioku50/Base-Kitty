@@ -5,6 +5,7 @@ export type NeonSql = ReturnType<typeof neon>;
 let scoresEnsured = false;
 let notificationEnsured = false;
 let rewardTablesEnsured = false;
+let walletIdentitiesEnsured = false;
 
 export function getSqlClient(): NeonSql {
   const databaseUrl = process.env.DATABASE_URL;
@@ -100,4 +101,90 @@ export async function ensureRewardTables(sql: NeonSql) {
   await sql`CREATE INDEX IF NOT EXISTS referrals_referrer_idx ON referrals (referrer_fid, created_at DESC)`;
 
   rewardTablesEnsured = true;
+}
+
+export type WalletIdentity = {
+  fid: number;
+  walletAddress: string;
+  username: string;
+  displayName: string;
+  pfpUrl: string;
+};
+
+function defaultWalletUsername(walletAddress: string): string {
+  return `wallet_${walletAddress.slice(2, 8)}`;
+}
+
+function defaultWalletDisplayName(walletAddress: string): string {
+  return `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
+}
+
+export async function ensureWalletIdentityTable(sql: NeonSql) {
+  if (walletIdentitiesEnsured) return;
+
+  await sql`CREATE SEQUENCE IF NOT EXISTS wallet_fid_seq START WITH 1500000000`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS wallet_identities (
+      wallet_address TEXT PRIMARY KEY,
+      fid INTEGER UNIQUE NOT NULL DEFAULT nextval('wallet_fid_seq'),
+      username TEXT NOT NULL DEFAULT '',
+      display_name TEXT NOT NULL DEFAULT '',
+      pfp_url TEXT NOT NULL DEFAULT '',
+      created_at BIGINT NOT NULL DEFAULT 0,
+      updated_at BIGINT NOT NULL DEFAULT 0
+    )
+  `;
+
+  await sql`ALTER TABLE wallet_identities ADD COLUMN IF NOT EXISTS fid INTEGER`;
+  await sql`ALTER TABLE wallet_identities ALTER COLUMN fid SET DEFAULT nextval('wallet_fid_seq')`;
+  await sql`ALTER TABLE wallet_identities ADD COLUMN IF NOT EXISTS username TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE wallet_identities ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE wallet_identities ADD COLUMN IF NOT EXISTS pfp_url TEXT NOT NULL DEFAULT ''`;
+  await sql`ALTER TABLE wallet_identities ADD COLUMN IF NOT EXISTS created_at BIGINT NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE wallet_identities ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0`;
+  await sql`CREATE UNIQUE INDEX IF NOT EXISTS wallet_identities_fid_idx ON wallet_identities (fid)`;
+
+  walletIdentitiesEnsured = true;
+}
+
+export async function getOrCreateWalletIdentity(
+  sql: NeonSql,
+  walletAddress: string
+): Promise<WalletIdentity> {
+  await ensureWalletIdentityTable(sql);
+
+  const normalizedAddress = walletAddress.trim().toLowerCase();
+  const now = Date.now();
+  const username = defaultWalletUsername(normalizedAddress);
+  const displayName = defaultWalletDisplayName(normalizedAddress);
+
+  const rows = (await sql`
+    INSERT INTO wallet_identities
+      (wallet_address, username, display_name, pfp_url, created_at, updated_at)
+    VALUES
+      (${normalizedAddress}, ${username}, ${displayName}, '', ${now}, ${now})
+    ON CONFLICT (wallet_address) DO UPDATE SET
+      updated_at = ${now}
+    RETURNING fid, wallet_address, username, display_name, pfp_url
+  `) as Array<{
+    fid: number;
+    wallet_address: string;
+    username: string;
+    display_name: string;
+    pfp_url: string;
+  }>;
+
+  const row = rows[0];
+  if (!row || !Number.isInteger(Number(row.fid))) {
+    throw new Error("Failed to resolve wallet identity");
+  }
+
+  return {
+    fid: Number(row.fid),
+    walletAddress: row.wallet_address,
+    username: row.username || username,
+    displayName: row.display_name || displayName,
+    pfpUrl: row.pfp_url || "",
+  };
 }

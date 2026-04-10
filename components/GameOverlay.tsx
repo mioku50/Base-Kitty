@@ -5,7 +5,6 @@ import Image from "next/image";
 import { useFarcaster } from "./FarcasterProvider";
 import KittyIcon from "./KittyIcon";
 import type { GameStats } from "../lib/game/types";
-import { sdk } from "@farcaster/miniapp-sdk";
 
 const REVIVE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -49,13 +48,7 @@ function formatTimeLeft(ms: number): string {
 }
 
 export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive }: Props) {
-  const { user, composeCast } = useFarcaster();
-  const [contextUser, setContextUser] = useState<{
-    fid: number;
-    username?: string;
-    displayName?: string;
-    pfpUrl?: string;
-  } | null>(null);
+  const { user, composeCast, authToken } = useFarcaster();
   const [shared, setShared] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [revived, setRevived] = useState(false);
@@ -67,7 +60,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
   const [bestScore, setBestScore] = useState(stats.score);
   const [badges, setBadges] = useState<string[]>([]);
   const isNewBest = stats.score >= bestScore;
-  const effectiveUser = user || contextUser;
+  const effectiveUser = user;
   const bestScoreKey = useMemo(
     () => `nimbus_ascent:best:${effectiveUser?.fid ?? "guest"}`,
     [effectiveUser?.fid]
@@ -88,27 +81,6 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
   }, [bestScoreKey, stats.score]);
 
   useEffect(() => {
-    if (user) return;
-
-    let mounted = true;
-    sdk.context
-      .then((ctx) => {
-        if (!mounted || !ctx?.user) return;
-        setContextUser({
-          fid: ctx.user.fid,
-          username: ctx.user.username ?? undefined,
-          displayName: ctx.user.displayName ?? undefined,
-          pfpUrl: ctx.user.pfpUrl ?? undefined,
-        });
-      })
-      .catch(() => {});
-
-    return () => {
-      mounted = false;
-    };
-  }, [user]);
-
-  useEffect(() => {
     if (!reviveNextAt) return;
     const timer = window.setInterval(() => {
       setNowTs(Date.now());
@@ -116,14 +88,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
     return () => window.clearInterval(timer);
   }, [reviveNextAt]);
 
-  const getQuickAuthToken = useCallback(async () => {
-    try {
-      const { token } = await sdk.quickAuth.getToken();
-      return token;
-    } catch {
-      return null;
-    }
-  }, []);
+  const getQuickAuthToken = useCallback(async () => authToken, [authToken]);
 
   const readLocalReviveState = useCallback(() => {
     if (typeof window === "undefined") {
@@ -215,7 +180,10 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
           : 0;
       fetch("/api/score", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
         body: JSON.stringify({
           fid: effectiveUser.fid,
           username: effectiveUser.username,
@@ -249,7 +217,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
       if (stats.prayersUsed >= 1) b.push(`Prayer Warrior x${stats.prayersUsed}`);
       setBadges(b);
     }
-  }, [stats, effectiveUser, bestScoreKey]);
+  }, [authToken, stats, effectiveUser, bestScoreKey]);
 
   // Build OG image URL for the share card
   const ogUrl = (() => {
@@ -454,7 +422,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
                 ? "Sharing..."
                 : reviveStatusLoading
                   ? "Checking revive..."
-                  : "Share to Farcaster → Revive!"}
+                : "Share to Revive!"}
             </span>
           </button>
           {reviveCooldownText && (
@@ -487,7 +455,7 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
       </div>
 
       <p className="text-zinc-600 text-[10px] mb-2">
-        Season 1 prize pool: 10,000 $DEGEN for Top 10 players.
+        Season 1 prize pool: 10,000 $DEGEN for Top 3 players.
       </p>
     </div>
   );

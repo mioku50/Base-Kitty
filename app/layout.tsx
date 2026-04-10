@@ -17,20 +17,20 @@ export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: "Nimbus Ascent",
   description:
-    "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
+    "Nimbus Ascent — a Doodle Jump style app on Base. Rise from Web2 to Onchain Heaven!",
   openGraph: {
     type: "website",
     url: APP_URL,
     title: "Nimbus Ascent",
     description:
-      "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
+      "Nimbus Ascent — a Doodle Jump style app on Base. Rise from Web2 to Onchain Heaven!",
     images: [OG_IMAGE_URL],
   },
   twitter: {
     card: "summary_large_image",
     title: "Nimbus Ascent",
     description:
-      "Nimbus Ascent — a Doodle Jump style MiniApp for Farcaster. Rise from Web2 to Onchain Heaven!",
+      "Nimbus Ascent — a Doodle Jump style app on Base. Rise from Web2 to Onchain Heaven!",
     images: [OG_IMAGE_URL],
   },
   icons: {

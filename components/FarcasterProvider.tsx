@@ -7,32 +7,79 @@ import {
   useEffect,
   useState,
 } from "react";
-import { sdk } from "@farcaster/miniapp-sdk";
+import {
+  buildWalletSignInMessage,
+  normalizeHexAddress,
+  type HexAddress,
+} from "../lib/shared/walletAuth";
 
 interface FarcasterUser {
   fid: number;
   username?: string;
   displayName?: string;
   pfpUrl?: string;
+  walletAddress?: string;
+  authType?: "wallet" | "farcaster";
 }
+
+type EthereumProvider = {
+  request: (params: { method: string; params?: unknown[] }) => Promise<unknown>;
+};
 
 interface FarcasterCtx {
   user: FarcasterUser | null;
   isSDKLoaded: boolean;
   isAuthenticated: boolean;
+  authToken: string | null;
   signIn: () => Promise<void>;
+  signOut: () => void;
   composeCast: (text: string, options?: { embeds?: string[] }) => Promise<void>;
+  getEthereumProvider: () => Promise<EthereumProvider | null>;
 }
+
+const AUTH_TOKEN_STORAGE_KEY = "nimbus_ascent:auth_token:v2";
+const AUTH_USER_STORAGE_KEY = "nimbus_ascent:auth_user:v2";
 
 const FarcasterContext = createContext<FarcasterCtx>({
   user: null,
   isSDKLoaded: false,
   isAuthenticated: false,
+  authToken: null,
   signIn: async () => {},
+  signOut: () => {},
   composeCast: async () => {},
+  getEthereumProvider: async () => null,
 });
 
 export const useFarcaster = () => useContext(FarcasterContext);
+
+function getInjectedProvider(): EthereumProvider | null {
+  if (typeof window === "undefined") return null;
+  const candidate = (
+    window as unknown as {
+      ethereum?: {
+        request?: (params: { method: string; params?: unknown[] }) => Promise<unknown>;
+      };
+    }
+  ).ethereum;
+  if (!candidate || typeof candidate.request !== "function") return null;
+  return candidate as EthereumProvider;
+}
+
+function randomNonceHex(bytes = 16): string {
+  const buffer = new Uint8Array(bytes);
+  window.crypto.getRandomValues(buffer);
+  return Array.from(buffer)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function utf8ToHex(message: string): `0x${string}` {
+  const encoded = new TextEncoder().encode(message);
+  return `0x${Array.from(encoded)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")}` as `0x${string}`;
+}
 
 export default function FarcasterProvider({
   children,
@@ -40,100 +87,212 @@ export default function FarcasterProvider({
   children: React.ReactNode;
 }) {
   const [user, setUser] = useState<FarcasterUser | null>(null);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const [isSDKLoaded, setIsSDKLoaded] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-  // Initialize SDK and signal ready
   useEffect(() => {
-    let readyCalled = false;
-    const safeReady = () => {
-      if (readyCalled) return;
+    if (typeof window === "undefined") return;
+
+    const cachedToken = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+    const cachedUserRaw = window.localStorage.getItem(AUTH_USER_STORAGE_KEY);
+    let cachedUser: FarcasterUser | null = null;
+    if (cachedUserRaw) {
       try {
-        sdk.actions.ready();
-        readyCalled = true;
+        cachedUser = JSON.parse(cachedUserRaw) as FarcasterUser;
       } catch {
-        // Ignore outside mini app context.
+        cachedUser = null;
       }
-    };
+    }
 
-    // Call ready as early as possible to avoid splash warnings in host clients.
-    safeReady();
-    const readyRetryTimer = window.setTimeout(safeReady, 800);
+    if (cachedToken && cachedUser) {
+      setAuthToken(cachedToken);
+      setUser(cachedUser);
+      setIsAuthenticated(true);
 
-    const init = async () => {
-      try {
-        // Load SDK context (works inside Farcaster clients)
-        const ctx = await sdk.context;
-        if (ctx?.user) {
-          setUser({
-            fid: ctx.user.fid,
-            username: ctx.user.username ?? undefined,
-            displayName: ctx.user.displayName ?? undefined,
-            pfpUrl: ctx.user.pfpUrl ?? undefined,
-          });
-        }
-      } catch {
-        // Not inside Farcaster client — that's okay
-        console.log("[FC] Not running inside Farcaster client");
-      }
-      setIsSDKLoaded(true);
-      safeReady();
-    };
-
-    init();
-
-    return () => {
-      window.clearTimeout(readyRetryTimer);
-    };
-  }, []);
-
-  // Quick Auth sign-in
-  const signIn = useCallback(async () => {
-    try {
-      const { token } = await sdk.quickAuth.getToken();
-
-      // Verify token on our backend
-      const res = await fetch("/api/auth/verify", {
+      // Refresh/validate session token in background.
+      fetch("/api/auth/verify", {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${cachedToken}`,
         },
-      });
+        cache: "no-store",
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            throw new Error("Session expired");
+          }
+          const data = (await res.json()) as {
+            token?: string;
+            user?: FarcasterUser;
+          };
+          const nextToken = data.token || cachedToken;
+          const nextUser = data.user || cachedUser;
+          setAuthToken(nextToken);
+          setUser(nextUser);
+          setIsAuthenticated(true);
+          window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, nextToken);
+          window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(nextUser));
+        })
+        .catch(() => {
+          setAuthToken(null);
+          setUser(null);
+          setIsAuthenticated(false);
+          window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+          window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+        })
+        .finally(() => {
+          setIsSDKLoaded(true);
+        });
+      return;
+    }
 
-      if (res.ok) {
-        const data = await res.json();
-        setUser(data.user);
-        setIsAuthenticated(true);
-      }
-    } catch (err) {
-      console.error("[FC] Quick Auth failed:", err);
+    setIsSDKLoaded(true);
+  }, []);
+
+  const getEthereumProvider = useCallback(async () => {
+    return getInjectedProvider();
+  }, []);
+
+  const signOut = useCallback(() => {
+    setAuthToken(null);
+    setUser(null);
+    setIsAuthenticated(false);
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+      window.localStorage.removeItem(AUTH_USER_STORAGE_KEY);
     }
   }, []);
 
-  // Compose a cast via SDK
-  const composeCast = useCallback(async (text: string, options?: { embeds?: string[] }) => {
-    const embeds = (options?.embeds ?? []).filter(Boolean).slice(0, 2);
-    try {
-      if (embeds.length === 0) {
-        await sdk.actions.composeCast({ text });
-      } else if (embeds.length === 1) {
-        await sdk.actions.composeCast({ text, embeds: [embeds[0]] });
-      } else {
-        await sdk.actions.composeCast({ text, embeds: [embeds[0], embeds[1]] });
+  const signIn = useCallback(async () => {
+    const provider = getInjectedProvider();
+    if (!provider) {
+      throw new Error("Wallet provider is unavailable");
+    }
+
+    const accounts = (await provider.request({
+      method: "eth_requestAccounts",
+    })) as string[] | undefined;
+    const address = normalizeHexAddress(accounts?.[0]);
+    if (!address) {
+      throw new Error("No wallet account is connected");
+    }
+
+    const nonce = randomNonceHex();
+    const issuedAt = new Date().toISOString();
+    const message = buildWalletSignInMessage({
+      domain: window.location.hostname.toLowerCase(),
+      address,
+      nonce,
+      issuedAt,
+    });
+
+    const messageHex = utf8ToHex(message);
+    const attempts: unknown[][] = [
+      [message, address],
+      [address, message],
+      [messageHex, address],
+      [address, messageHex],
+    ];
+
+    let signature = "";
+    let lastError: unknown = null;
+    for (const params of attempts) {
+      try {
+        signature = (await provider.request({
+          method: "personal_sign",
+          params,
+        })) as string;
+        if (typeof signature === "string" && signature.startsWith("0x")) {
+          break;
+        }
+      } catch (error) {
+        lastError = error;
       }
-    } catch (err) {
-      console.error("[FC] composeCast failed:", err);
-      // Fallback: open Warpcast intent in new tab
+    }
+
+    if (!signature || typeof signature !== "string") {
+      if (lastError instanceof Error) {
+        throw lastError;
+      }
+      throw new Error("Wallet signature was not returned");
+    }
+
+    const res = await fetch("/api/auth/verify", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        address,
+        message,
+        signature,
+      }),
+    });
+
+    if (!res.ok) {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(data.error || "Wallet sign-in failed");
+    }
+
+    const data = (await res.json()) as { token: string; user: FarcasterUser };
+    if (!data.token || !data.user) {
+      throw new Error("Invalid auth response");
+    }
+
+    setAuthToken(data.token);
+    setUser(data.user);
+    setIsAuthenticated(true);
+    window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, data.token);
+    window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(data.user));
+  }, []);
+
+  const composeCast = useCallback(
+    async (text: string, options?: { embeds?: string[] }) => {
+      const embeds = (options?.embeds ?? []).filter(Boolean).slice(0, 2);
+      const primaryUrl = embeds[0] || (typeof window !== "undefined" ? window.location.origin : "");
+
+      const canNativeShare =
+        typeof navigator !== "undefined" && typeof navigator.share === "function";
+      if (canNativeShare) {
+        try {
+          await navigator.share({
+            text,
+            url: primaryUrl || undefined,
+          });
+          return;
+        } catch (error: unknown) {
+          const errorName =
+            typeof error === "object" && error && "name" in error
+              ? String((error as { name?: string }).name)
+              : "";
+          if (errorName === "AbortError") {
+            throw error;
+          }
+          // Fall through to web intent fallback.
+        }
+      }
+
       const params = new URLSearchParams({ text });
       embeds.forEach((embed) => params.append("embeds[]", embed));
-      window.open(`https://warpcast.com/~/compose?${params.toString()}`, "_blank");
-    }
-  }, []);
+      const composeUrl = `https://warpcast.com/~/compose?${params.toString()}`;
+      window.open(composeUrl, "_blank", "noopener,noreferrer");
+    },
+    []
+  );
 
   return (
     <FarcasterContext.Provider
-      value={{ user, isSDKLoaded, isAuthenticated, signIn, composeCast }}
+      value={{
+        user,
+        isSDKLoaded,
+        isAuthenticated,
+        authToken,
+        signIn,
+        signOut,
+        composeCast,
+        getEthereumProvider,
+      }}
     >
       {children}
     </FarcasterContext.Provider>

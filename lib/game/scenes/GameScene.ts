@@ -37,8 +37,8 @@ const PERFECT_JUMP_COOLDOWN_MS = 850;
 const JUMP_TRAIL_BASE_INTERVAL_MS = 130;
 const JUMP_TRAIL_BOOST_INTERVAL_MS = 78;
 const JUMP_TRAIL_VELOCITY_THRESHOLD = -180;
-const PERFECT_JUMP_TOLERANCE_MIN = 12;
-const PERFECT_JUMP_TOLERANCE_MAX = 22;
+const PERFECT_JUMP_TOLERANCE_MIN = 10;
+const PERFECT_JUMP_TOLERANCE_MAX = 16;
 const MAX_TRANSIENT_FX = 150;
 const DREAM_DUST_COUNT = 14;
 // Cloud drift speeds per stage (min, max)
@@ -943,57 +943,57 @@ export default class GameScene extends Phaser.Scene {
     const impactY = cloudTop + 2;
 
     const puff = this.add
-      .ellipse(impactX, impactY + 4, 24, 12, 0xf2e8ff, 0.38)
+      .ellipse(impactX, impactY + 3, 16, 8, 0xf2e8ff, 0.22)
       .setDepth(6)
       .setScrollFactor(1);
     this.registerTransientFx(puff);
     this.tweens.add({
       targets: puff,
-      scaleX: { from: 0.4, to: 1.35 },
-      scaleY: { from: 0.35, to: 0.95 },
-      alpha: { from: 0.38, to: 0 },
-      duration: 210,
+      scaleX: { from: 0.55, to: 1.1 },
+      scaleY: { from: 0.5, to: 0.82 },
+      alpha: { from: 0.22, to: 0 },
+      duration: 170,
       ease: "Sine.easeOut",
       onComplete: () => puff.destroy(),
     });
 
     const ring = this.add
-      .ellipse(impactX, impactY + 1, 12, 6)
-      .setStrokeStyle(2, 0xe5c4ff, 0.7)
+      .ellipse(impactX, impactY + 1, 10, 5)
+      .setStrokeStyle(1.5, 0xe5c4ff, 0.45)
       .setDepth(6)
       .setScrollFactor(1);
     this.registerTransientFx(ring);
     this.tweens.add({
       targets: ring,
-      scaleX: { from: 1, to: 3.2 },
-      scaleY: { from: 1, to: 2.3 },
-      alpha: { from: 0.7, to: 0 },
-      duration: 340,
+      scaleX: { from: 1, to: 2.1 },
+      scaleY: { from: 1, to: 1.6 },
+      alpha: { from: 0.45, to: 0 },
+      duration: 250,
       ease: "Quad.easeOut",
       onComplete: () => ring.destroy(),
     });
 
-    this.emitBurstParticles(impactX, impactY, [0xffffff, 0xd8efff, 0xe7d3ff], 5, 16, 14, 300);
+    this.emitBurstParticles(impactX, impactY, [0xffffff, 0xd8efff, 0xe7d3ff], 3, 12, 10, 220);
 
     const squash = this.add
       .image(cloud.x, cloud.y, cloud.texture.key, cloud.frame.name)
       .setDisplaySize(cloud.displayWidth, cloud.displayHeight)
-      .setAlpha(0.55)
+      .setAlpha(0.3)
       .setDepth(cloud.depth + 0.05)
       .setScrollFactor(1);
     this.registerTransientFx(squash);
     this.tweens.add({
       targets: squash,
-      scaleX: { from: 1, to: 1.1 },
-      scaleY: { from: 1, to: 0.8 },
-      duration: 80,
+      scaleX: { from: 1, to: 1.05 },
+      scaleY: { from: 1, to: 0.88 },
+      duration: 70,
       yoyo: true,
       ease: "Sine.easeInOut",
     });
     this.tweens.add({
       targets: squash,
-      alpha: { from: 0.55, to: 0 },
-      duration: 220,
+      alpha: { from: 0.3, to: 0 },
+      duration: 150,
       ease: "Sine.easeOut",
       onComplete: () => squash.destroy(),
     });
@@ -1021,15 +1021,15 @@ export default class GameScene extends Phaser.Scene {
 
   private emitPerfectJumpFx(x: number, y: number) {
     const glow = this.add
-      .circle(x, y, 18, 0xf6d8ff, 0.26)
+      .circle(x, y, 14, 0xf6d8ff, 0.18)
       .setDepth(7)
       .setScrollFactor(1);
     this.registerTransientFx(glow);
     this.tweens.add({
       targets: glow,
-      scale: { from: 0.65, to: 2.1 },
-      alpha: { from: 0.26, to: 0 },
-      duration: 420,
+      scale: { from: 0.72, to: 1.6 },
+      alpha: { from: 0.18, to: 0 },
+      duration: 320,
       ease: "Sine.easeOut",
       onComplete: () => glow.destroy(),
     });
@@ -1063,8 +1063,8 @@ export default class GameScene extends Phaser.Scene {
     this.registerTransientFx(pulse);
     this.tweens.add({
       targets: pulse,
-      alpha: { from: 0, to: 0.1 },
-      duration: 70,
+      alpha: { from: 0, to: 0.035 },
+      duration: 55,
       yoyo: true,
       ease: "Sine.easeInOut",
       onComplete: () => pulse.destroy(),

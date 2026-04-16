@@ -69,6 +69,13 @@ const BASE_CHAIN_ID = "0x2105";
 const CLAIM_STATUS_POLL_INTERVAL_MS = 900;
 const CLAIM_STATUS_POLL_ATTEMPTS = 10;
 const CAST_COMPOSER_TIMEOUT_MS = 12000;
+const WALLET_REQUEST_TIMEOUT_MS = 30000;
+const PREPARE_REQUEST_TIMEOUT_MS = 20000;
+const STATUS_REQUEST_TIMEOUT_MS = 12000;
+
+type WalletProvider = {
+  request: (params: { method: string; params?: unknown[] }) => Promise<unknown>;
+};
 
 function asHexAddress(value: string | undefined): HexAddress | null {
   if (!value) return null;
@@ -79,6 +86,61 @@ function delay(ms: number) {
   return new Promise<void>((resolve) => {
     window.setTimeout(resolve, ms);
   });
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { name?: string };
+  return e.name === "AbortError";
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+  timeoutMessage: string
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (isAbortError(err)) {
+      throw new Error(timeoutMessage);
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 function normalizeProviderError(err: unknown): string {
@@ -115,6 +177,18 @@ function normalizeProviderError(err: unknown): string {
   }
 
   return "Failed to claim daily blessing";
+}
+
+async function providerRequest<T>(
+  provider: WalletProvider,
+  params: { method: string; params?: unknown[] },
+  timeoutMessage = "Wallet request timed out. Please try again."
+): Promise<T> {
+  return withTimeout(
+    provider.request(params) as Promise<T>,
+    WALLET_REQUEST_TIMEOUT_MS,
+    timeoutMessage
+  );
 }
 
 function extractTxHashFromCallsStatus(status: unknown): string | null {
@@ -258,26 +332,39 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     setClaimError("");
 
     try {
-      const provider = await getEthereumProvider();
+      const provider = await withTimeout(
+        getEthereumProvider(),
+        WALLET_REQUEST_TIMEOUT_MS,
+        "Wallet provider is not responding. Please retry."
+      );
 
       let addressQuery = "";
       if (provider) {
-        const accounts = (await provider.request({
-          method: "eth_accounts",
-        })) as string[] | undefined;
+        const accounts = await providerRequest<string[] | undefined>(
+          provider,
+          {
+            method: "eth_accounts",
+          },
+          "Wallet account check timed out. Please retry."
+        );
         const address = asHexAddress(accounts?.[0]);
         if (address) {
           addressQuery = `?address=${address}`;
         }
       }
 
-      const response = await fetch(`/api/claim/status${addressQuery}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${authToken}`,
+      const response = await fetchWithTimeout(
+        `/api/claim/status${addressQuery}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+          cache: "no-store",
         },
-        cache: "no-store",
-      });
+        STATUS_REQUEST_TIMEOUT_MS,
+        "Claim status request timed out. Please retry."
+      );
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as {
@@ -305,26 +392,39 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     if (!isSDKLoaded || !user || !authToken) return;
 
     try {
-      const provider = await getEthereumProvider();
+      const provider = await withTimeout(
+        getEthereumProvider(),
+        WALLET_REQUEST_TIMEOUT_MS,
+        "Wallet provider is not responding. Please retry."
+      );
 
       let addressQuery = "";
       if (provider) {
-        const accounts = (await provider.request({
-          method: "eth_accounts",
-        })) as string[] | undefined;
+        const accounts = await providerRequest<string[] | undefined>(
+          provider,
+          {
+            method: "eth_accounts",
+          },
+          "Wallet account check timed out. Please retry."
+        );
         const address = asHexAddress(accounts?.[0]);
         if (address) {
           addressQuery = `?address=${address}`;
         }
       }
 
-      const response = await fetch(`/api/tasks/status${addressQuery}`, {
-        method: "GET",
-        headers: {
-          Authorization: `Bearer ${authToken}`,
+      const response = await fetchWithTimeout(
+        `/api/tasks/status${addressQuery}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${authToken}`,
+          },
+          cache: "no-store",
         },
-        cache: "no-store",
-      });
+        STATUS_REQUEST_TIMEOUT_MS,
+        "Task status request timed out. Please retry."
+      );
 
       if (!response.ok) {
         const errorData = (await response.json().catch(() => ({}))) as { error?: string };
@@ -348,17 +448,17 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
 
   const sendClaimTransaction = useCallback(
     async (
-      provider: {
-        request: (params: { method: string; params?: unknown[] }) => Promise<unknown>;
-      },
+      provider: WalletProvider,
       from: HexAddress,
       prepared: ClaimPrepareResponse
     ) => {
       const targetChain = (prepared.tx.chainIdHex || BASE_CHAIN_ID) as `0x${string}`;
-      const chainId = (await provider.request({ method: "eth_chainId" })) as string;
+      const chainId = await providerRequest<string>(provider, {
+        method: "eth_chainId",
+      });
       if (chainId !== targetChain) {
         try {
-          await provider.request({
+          await providerRequest(provider, {
             method: "wallet_switchEthereumChain",
             params: [{ chainId: targetChain }],
           });
@@ -371,7 +471,9 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       let callsId = "";
 
       try {
-        const maybeCallsId = (await provider.request({
+        const maybeCallsId = await providerRequest<string>(
+          provider,
+          {
           method: "wallet_sendCalls",
           params: [
             {
@@ -387,7 +489,9 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
               ],
             },
           ],
-        })) as string;
+          },
+          "Transaction request timed out. Please retry claim."
+        );
 
         if (typeof maybeCallsId !== "string" || maybeCallsId.length === 0) {
           throw new Error("wallet_sendCalls returned an empty id");
@@ -396,10 +500,14 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         callsId = maybeCallsId;
 
         for (let attempt = 0; attempt < CLAIM_STATUS_POLL_ATTEMPTS; attempt++) {
-          const status = await provider.request({
+          const status = await providerRequest(
+            provider,
+            {
             method: "wallet_getCallsStatus",
             params: [callsId],
-          });
+            },
+            "Transaction status check timed out. Please retry claim."
+          );
 
           const resolvedTxHash = extractTxHashFromCallsStatus(status);
           if (resolvedTxHash) {
@@ -422,17 +530,21 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           await delay(CLAIM_STATUS_POLL_INTERVAL_MS);
         }
       } catch {
-        txHash = (await provider.request({
-          method: "eth_sendTransaction",
-          params: [
-            {
-              from,
-              to: prepared.tx.to,
-              value: prepared.tx.value,
-              data: prepared.tx.data,
-            },
-          ],
-        })) as string;
+        txHash = await providerRequest<string>(
+          provider,
+          {
+            method: "eth_sendTransaction",
+            params: [
+              {
+                from,
+                to: prepared.tx.to,
+                value: prepared.tx.value,
+                data: prepared.tx.data,
+              },
+            ],
+          },
+          "Transaction confirmation timed out. Please retry claim."
+        );
       }
 
       return { txHash, callsId };
@@ -448,14 +560,22 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     setLastClaimTask("daily");
 
     try {
-      const provider = await getEthereumProvider();
+      const provider = await withTimeout(
+        getEthereumProvider(),
+        WALLET_REQUEST_TIMEOUT_MS,
+        "Wallet provider is not responding. Please reopen the mini app and try again."
+      );
       if (!provider) {
         throw new Error("Wallet provider is unavailable in this client");
       }
 
-      const accounts = (await provider.request({
-        method: "eth_requestAccounts",
-      })) as string[] | undefined;
+      const accounts = await providerRequest<string[] | undefined>(
+        provider,
+        {
+          method: "eth_requestAccounts",
+        },
+        "Wallet connection request timed out. Please try again."
+      );
       const from = asHexAddress(accounts?.[0]);
       if (!from) {
         throw new Error("No wallet account is connected");
@@ -464,14 +584,19 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       if (!authToken) {
         throw new Error("Connect wallet first");
       }
-      const prepareResponse = await fetch("/api/claim/prepare", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
+      const prepareResponse = await fetchWithTimeout(
+        "/api/claim/prepare",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ address: from }),
         },
-        body: JSON.stringify({ address: from }),
-      });
+        PREPARE_REQUEST_TIMEOUT_MS,
+        "Claim preparation timed out. Please retry."
+      );
 
       if (!prepareResponse.ok) {
         const errorData = (await prepareResponse.json().catch(() => ({}))) as {
@@ -516,14 +641,22 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       setLastClaimTask(task);
 
       try {
-        const provider = await getEthereumProvider();
+        const provider = await withTimeout(
+          getEthereumProvider(),
+          WALLET_REQUEST_TIMEOUT_MS,
+          "Wallet provider is not responding. Please reopen the mini app and try again."
+        );
         if (!provider) {
           throw new Error("Wallet provider is unavailable in this client");
         }
 
-        const accounts = (await provider.request({
-          method: "eth_requestAccounts",
-        })) as string[] | undefined;
+        const accounts = await providerRequest<string[] | undefined>(
+          provider,
+          {
+            method: "eth_requestAccounts",
+          },
+          "Wallet connection request timed out. Please try again."
+        );
         const from = asHexAddress(accounts?.[0]);
         if (!from) {
           throw new Error("No wallet account is connected");
@@ -532,14 +665,19 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         if (!authToken) {
           throw new Error("Connect wallet first");
         }
-        const response = await fetch("/api/tasks/prepare", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
+        const response = await fetchWithTimeout(
+          "/api/tasks/prepare",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${authToken}`,
+            },
+            body: JSON.stringify({ task, address: from }),
           },
-          body: JSON.stringify({ task, address: from }),
-        });
+          PREPARE_REQUEST_TIMEOUT_MS,
+          "Task reward preparation timed out. Please retry."
+        );
 
         if (!response.ok) {
           const errorData = (await response.json().catch(() => ({}))) as { error?: string };

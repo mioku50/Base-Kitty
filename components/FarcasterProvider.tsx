@@ -41,9 +41,22 @@ const AUTH_TOKEN_STORAGE_KEY = "nimbus_ascent:auth_token:v2";
 const AUTH_USER_STORAGE_KEY = "nimbus_ascent:auth_user:v2";
 
 type MiniAppSdkLike = {
+  context?: Promise<{
+    user?: {
+      fid?: number;
+      username?: string;
+      displayName?: string;
+      pfpUrl?: string;
+    };
+  }>;
   actions?: {
     ready?: () => Promise<unknown> | unknown;
     composeCast?: (input: { text: string; embeds?: string[] }) => Promise<unknown>;
+  };
+  quickAuth?: {
+    getToken?: (options?: { force?: boolean; quickAuthServerOrigin?: string }) => Promise<{
+      token?: string;
+    }>;
   };
   wallet?: {
     ethProvider?: EthereumProvider;
@@ -92,6 +105,34 @@ function utf8ToHex(message: string): `0x${string}` {
     .join("")}` as `0x${string}`;
 }
 
+function isFallbackWalletUser(user: FarcasterUser | null | undefined): boolean {
+  if (!user) return false;
+  const username = (user.username || "").trim().toLowerCase();
+  const displayName = (user.displayName || "").trim().toLowerCase();
+  return (
+    !username ||
+    username.startsWith("wallet_") ||
+    displayName.includes("...") ||
+    displayName.startsWith("0x")
+  );
+}
+
+function mergeUserWithHostContext(
+  user: FarcasterUser | null,
+  hostUser: FarcasterUser | null
+): FarcasterUser | null {
+  if (!user) return null;
+  if (!hostUser) return user;
+  if (!isFallbackWalletUser(user)) return user;
+
+  return {
+    ...user,
+    username: hostUser.username || user.username,
+    displayName: hostUser.displayName || hostUser.username || user.displayName,
+    pfpUrl: user.pfpUrl || hostUser.pfpUrl,
+  };
+}
+
 export default function FarcasterProvider({
   children,
 }: {
@@ -102,6 +143,7 @@ export default function FarcasterProvider({
   const [isSDKLoaded, setIsSDKLoaded] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [miniAppSdk, setMiniAppSdk] = useState<MiniAppSdkLike | null>(null);
+  const [hostContextUser, setHostContextUser] = useState<FarcasterUser | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -115,6 +157,16 @@ export default function FarcasterProvider({
         setMiniAppSdk(sdk);
         if (sdk.actions?.ready) {
           await sdk.actions.ready();
+        }
+        const context = sdk.context ? await sdk.context : null;
+        if (context?.user?.fid) {
+          setHostContextUser({
+            fid: context.user.fid,
+            username: context.user.username,
+            displayName: context.user.displayName,
+            pfpUrl: context.user.pfpUrl,
+            authType: "farcaster",
+          });
         }
       } catch {
         // Not running inside Farcaster mini app host (or SDK unavailable) — ignore.
@@ -162,7 +214,10 @@ export default function FarcasterProvider({
             user?: FarcasterUser;
           };
           const nextToken = data.token || cachedToken;
-          const nextUser = data.user || cachedUser;
+          const nextUser = mergeUserWithHostContext(data.user || cachedUser, hostContextUser);
+          if (!nextUser) {
+            throw new Error("Session user is missing");
+          }
           setAuthToken(nextToken);
           setUser(nextUser);
           setIsAuthenticated(true);
@@ -183,7 +238,19 @@ export default function FarcasterProvider({
     }
 
     setIsSDKLoaded(true);
-  }, []);
+  }, [hostContextUser]);
+
+  useEffect(() => {
+    if (!hostContextUser) return;
+    setUser((prev) => {
+      const merged = mergeUserWithHostContext(prev, hostContextUser);
+      if (!merged) return prev;
+      if (typeof window !== "undefined" && authToken) {
+        window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(merged));
+      }
+      return merged;
+    });
+  }, [authToken, hostContextUser]);
 
   const getEthereumProvider = useCallback(async () => {
     if (miniAppSdk?.wallet?.getEthereumProvider) {
@@ -215,6 +282,53 @@ export default function FarcasterProvider({
   }, []);
 
   const signIn = useCallback(async () => {
+    if (miniAppSdk?.quickAuth?.getToken) {
+      try {
+        const quickAuth = await miniAppSdk.quickAuth.getToken();
+        const quickAuthToken = quickAuth?.token;
+        if (quickAuthToken) {
+          const quickAuthRes = await fetch("/api/auth/verify", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${quickAuthToken}`,
+            },
+            cache: "no-store",
+          });
+
+          if (quickAuthRes.ok) {
+            const data = (await quickAuthRes.json()) as {
+              token?: string;
+              user?: FarcasterUser;
+            };
+            const token = data.token || quickAuthToken;
+            const resolvedUser = mergeUserWithHostContext(
+              data.user ||
+                (hostContextUser
+                  ? {
+                      fid: hostContextUser.fid,
+                      username: hostContextUser.username,
+                      displayName: hostContextUser.displayName,
+                      pfpUrl: hostContextUser.pfpUrl,
+                      authType: "farcaster",
+                    }
+                  : null),
+              hostContextUser
+            );
+            if (resolvedUser) {
+              setAuthToken(token);
+              setUser(resolvedUser);
+              setIsAuthenticated(true);
+              window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+              window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+              return;
+            }
+          }
+        }
+      } catch {
+        // Fall back to wallet signature flow.
+      }
+    }
+
     const provider = await getEthereumProvider();
     if (!provider) {
       throw new Error("Wallet provider is unavailable");
@@ -238,12 +352,7 @@ export default function FarcasterProvider({
     });
 
     const messageHex = utf8ToHex(message);
-    const attempts: unknown[][] = [
-      [message, address],
-      [address, message],
-      [messageHex, address],
-      [address, messageHex],
-    ];
+    const attempts: unknown[][] = [[messageHex, address], [message, address]];
 
     let signature = "";
     let lastError: unknown = null;
@@ -256,6 +365,17 @@ export default function FarcasterProvider({
         if (typeof signature === "string" && signature.startsWith("0x")) {
           break;
         }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!signature) {
+      try {
+        signature = (await provider.request({
+          method: "eth_sign",
+          params: [address, messageHex],
+        })) as string;
       } catch (error) {
         lastError = error;
       }
@@ -290,12 +410,17 @@ export default function FarcasterProvider({
       throw new Error("Invalid auth response");
     }
 
+    const resolvedUser = mergeUserWithHostContext(data.user, hostContextUser);
+    if (!resolvedUser) {
+      throw new Error("Invalid auth response");
+    }
+
     setAuthToken(data.token);
-    setUser(data.user);
+    setUser(resolvedUser);
     setIsAuthenticated(true);
     window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, data.token);
-    window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(data.user));
-  }, [getEthereumProvider]);
+    window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(resolvedUser));
+  }, [getEthereumProvider, hostContextUser, miniAppSdk]);
 
   const composeCast = useCallback(
     async (text: string, options?: { embeds?: string[] }) => {

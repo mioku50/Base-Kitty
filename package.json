@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@farcaster/miniapp-node": "^0.1.13",
+    "@farcaster/miniapp-sdk": "^0.2.3",
     "@farcaster/quick-auth": "^0.0.8",
     "@neondatabase/serverless": "^1.0.2",
     "@neynar/nodejs-sdk": "^3.137.0",

@@ -40,6 +40,13 @@ interface FarcasterCtx {
 const AUTH_TOKEN_STORAGE_KEY = "nimbus_ascent:auth_token:v2";
 const AUTH_USER_STORAGE_KEY = "nimbus_ascent:auth_user:v2";
 
+type MiniAppSdkLike = {
+  actions?: {
+    ready?: () => Promise<unknown> | unknown;
+    composeCast?: (input: { text: string; embeds?: string[] }) => Promise<unknown>;
+  };
+};
+
 const FarcasterContext = createContext<FarcasterCtx>({
   user: null,
   isSDKLoaded: false,
@@ -90,6 +97,30 @@ export default function FarcasterProvider({
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [isSDKLoaded, setIsSDKLoaded] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [miniAppSdk, setMiniAppSdk] = useState<MiniAppSdkLike | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let active = true;
+
+    (async () => {
+      try {
+        const sdkModule = await import("@farcaster/miniapp-sdk");
+        if (!active) return;
+        const sdk = (sdkModule.default || sdkModule) as MiniAppSdkLike;
+        setMiniAppSdk(sdk);
+        if (sdk.actions?.ready) {
+          await sdk.actions.ready();
+        }
+      } catch {
+        // Not running inside Farcaster mini app host (or SDK unavailable) — ignore.
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -252,6 +283,15 @@ export default function FarcasterProvider({
       const embeds = (options?.embeds ?? []).filter(Boolean).slice(0, 2);
       const primaryUrl = embeds[0] || (typeof window !== "undefined" ? window.location.origin : "");
 
+      if (miniAppSdk?.actions?.composeCast) {
+        try {
+          await miniAppSdk.actions.composeCast({ text, embeds });
+          return;
+        } catch {
+          // Fall back to native share / web compose.
+        }
+      }
+
       const canNativeShare =
         typeof navigator !== "undefined" && typeof navigator.share === "function";
       if (canNativeShare) {
@@ -278,7 +318,7 @@ export default function FarcasterProvider({
       const composeUrl = `https://warpcast.com/~/compose?${params.toString()}`;
       window.open(composeUrl, "_blank", "noopener,noreferrer");
     },
-    []
+    [miniAppSdk]
   );
 
   return (

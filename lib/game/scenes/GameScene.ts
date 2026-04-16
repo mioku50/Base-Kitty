@@ -11,7 +11,9 @@ const PLATFORM_SPACING_MAX = 120;
 const GRAVITY = 700;
 const LOVE_SPEED = -700;
 const HOLD_MOVE_SPEED = 260;
-const SHOOT_BUTTON_Y_RATIO = 0.56;
+const SHOOT_BUTTON_Y_RATIO = 0.46;
+const PRAYER_BUTTON_BOTTOM_SAFE_OFFSET = 112;
+const SHOOT_BUTTON_BOTTOM_SAFE_OFFSET = 170;
 const PRAYER_SCORE_MULTIPLIER = 2;
 const PRAYER_JUMP_MULTIPLIER = 2;
 const SOCIAL_CLOUD_SPAWN_CHANCE = 0.025;
@@ -86,6 +88,17 @@ export default class GameScene extends Phaser.Scene {
   private lastSafeY = 0;
   private ambientStars: Phaser.GameObjects.Arc[] = [];
   private lastJumpBurstAt = 0;
+
+  private getPrayerButtonY(height: number) {
+    return Math.max(72, height - PRAYER_BUTTON_BOTTOM_SAFE_OFFSET);
+  }
+
+  private getShootButtonY(height: number) {
+    const ratioY = height * SHOOT_BUTTON_Y_RATIO;
+    const safeBottomY = height - SHOOT_BUTTON_BOTTOM_SAFE_OFFSET;
+    return Math.max(92, Math.min(ratioY, safeBottomY));
+  }
+
   private onScaleResize = (gameSize: { width: number; height: number }) => {
     const width = gameSize.width;
     const height = gameSize.height;
@@ -108,9 +121,9 @@ export default class GameScene extends Phaser.Scene {
     this.prayerHaloIcon.setPosition(barX - 22, barY - 2);
     this.prayerBarBg.setPosition(barX + barW / 2, barY + barH / 2);
     this.prayerBarFill.setPosition(barX, barY + barH / 2);
-    this.prayerBtn.setPosition(width / 2, height - 38);
+    this.prayerBtn.setPosition(width / 2, this.getPrayerButtonY(height));
     this.pauseBtn.setPosition(width - 24, 24);
-    this.shootBtn.setPosition(width - 28, height * SHOOT_BUTTON_Y_RATIO);
+    this.shootBtn.setPosition(width - 28, this.getShootButtonY(height));
 
     this.ambientStars.forEach((star) => {
       if (star.x > width + 20) star.x = Phaser.Math.Between(0, width);
@@ -380,7 +393,7 @@ export default class GameScene extends Phaser.Scene {
       .text(0, 0, "😇 Prayer!", { fontSize: "15px", color: "#222222" })
       .setOrigin(0.5);
     this.prayerBtn = this.add
-      .container(width / 2, height - 38, [btnBg, btnText])
+      .container(width / 2, this.getPrayerButtonY(height), [btnBg, btnText])
       .setScrollFactor(0)
       .setDepth(25)
       .setVisible(false)
@@ -399,7 +412,7 @@ export default class GameScene extends Phaser.Scene {
       .text(0, 0, "💖", { fontSize: "18px" })
       .setOrigin(0.5);
     this.shootBtn = this.add
-      .container(width - 28, height * SHOOT_BUTTON_Y_RATIO, [shootBg, shootIcon])
+      .container(width - 28, this.getShootButtonY(height), [shootBg, shootIcon])
       .setScrollFactor(0)
       .setDepth(30)
       .setSize(44, 44)

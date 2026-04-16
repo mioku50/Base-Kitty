@@ -119,6 +119,108 @@ function defaultWalletDisplayName(walletAddress: string): string {
   return `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`;
 }
 
+type NeynarUserPayload = {
+  username?: string;
+  display_name?: string;
+  displayName?: string;
+  pfp_url?: string;
+  pfpUrl?: string;
+};
+
+function pickFirstNeynarUser(
+  payload: unknown,
+  normalizedAddress: string
+): NeynarUserPayload | null {
+  if (!payload || typeof payload !== "object") return null;
+  const obj = payload as Record<string, unknown>;
+
+  const addressCandidates = [
+    normalizedAddress,
+    normalizedAddress.toLowerCase(),
+    normalizedAddress.toUpperCase(),
+  ];
+  for (const key of addressCandidates) {
+    const entry = obj[key];
+    if (Array.isArray(entry) && entry.length > 0 && entry[0] && typeof entry[0] === "object") {
+      return entry[0] as NeynarUserPayload;
+    }
+  }
+
+  if (obj.user && typeof obj.user === "object") {
+    return obj.user as NeynarUserPayload;
+  }
+
+  if (Array.isArray(obj.users) && obj.users.length > 0 && obj.users[0] && typeof obj.users[0] === "object") {
+    return obj.users[0] as NeynarUserPayload;
+  }
+
+  for (const value of Object.values(obj)) {
+    if (Array.isArray(value) && value.length > 0 && value[0] && typeof value[0] === "object") {
+      const candidate = value[0] as Record<string, unknown>;
+      if (typeof candidate.username === "string" || typeof candidate.display_name === "string") {
+        return candidate as NeynarUserPayload;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function resolveWalletIdentityFromNeynar(
+  walletAddress: string
+): Promise<Pick<WalletIdentity, "username" | "displayName" | "pfpUrl"> | null> {
+  const apiKey = process.env.NEYNAR_API_KEY?.trim();
+  if (!apiKey) return null;
+
+  const normalizedAddress = walletAddress.toLowerCase();
+  const endpoints = [
+    `https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${encodeURIComponent(
+      normalizedAddress
+    )}`,
+    `https://api.neynar.com/v2/farcaster/user/by-custody-address?custody_address=${encodeURIComponent(
+      normalizedAddress
+    )}`,
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const res = await fetch(endpoint, {
+        headers: {
+          accept: "application/json",
+          "x-api-key": apiKey,
+        },
+        cache: "no-store",
+      });
+      if (!res.ok) continue;
+
+      const payload = (await res.json()) as unknown;
+      const user = pickFirstNeynarUser(payload, normalizedAddress);
+      if (!user) continue;
+
+      const username = typeof user.username === "string" ? user.username.trim() : "";
+      if (!username) continue;
+
+      const displayNameRaw =
+        (typeof user.display_name === "string" ? user.display_name : "") ||
+        (typeof user.displayName === "string" ? user.displayName : "");
+      const displayName = displayNameRaw.trim() || username;
+      const pfpUrlRaw =
+        (typeof user.pfp_url === "string" ? user.pfp_url : "") ||
+        (typeof user.pfpUrl === "string" ? user.pfpUrl : "");
+
+      return {
+        username,
+        displayName,
+        pfpUrl: pfpUrlRaw.trim(),
+      };
+    } catch {
+      // Try next Neynar endpoint.
+    }
+  }
+
+  return null;
+}
+
 export async function ensureWalletIdentityTable(sql: NeonSql) {
   if (walletIdentitiesEnsured) return;
 
@@ -175,9 +277,41 @@ export async function getOrCreateWalletIdentity(
     pfp_url: string;
   }>;
 
-  const row = rows[0];
+  let row = rows[0];
   if (!row || !Number.isInteger(Number(row.fid))) {
     throw new Error("Failed to resolve wallet identity");
+  }
+
+  const currentUsername = row.username || username;
+  const currentDisplayName = row.display_name || displayName;
+  const shouldAttemptProfileHydration =
+    !row.pfp_url ||
+    currentUsername.startsWith("wallet_") ||
+    currentDisplayName.includes("...");
+
+  if (shouldAttemptProfileHydration) {
+    const neynarProfile = await resolveWalletIdentityFromNeynar(normalizedAddress);
+    if (neynarProfile) {
+      const updatedRows = (await sql`
+        UPDATE wallet_identities
+        SET
+          username = ${neynarProfile.username || currentUsername},
+          display_name = ${neynarProfile.displayName || currentDisplayName},
+          pfp_url = ${neynarProfile.pfpUrl || row.pfp_url || ""},
+          updated_at = ${now}
+        WHERE wallet_address = ${normalizedAddress}
+        RETURNING fid, wallet_address, username, display_name, pfp_url
+      `) as Array<{
+        fid: number;
+        wallet_address: string;
+        username: string;
+        display_name: string;
+        pfp_url: string;
+      }>;
+      if (updatedRows[0]) {
+        row = updatedRows[0];
+      }
+    }
   }
 
   return {

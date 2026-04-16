@@ -19,14 +19,61 @@ export async function POST(req: NextRequest) {
     }
 
     if (auth.authType === "wallet") {
+      const walletAddress = auth.walletAddress;
+      if (!walletAddress) {
+        return NextResponse.json({
+          token: auth.token,
+          user: {
+            fid: auth.fid,
+            walletAddress: auth.walletAddress,
+            username: auth.username,
+            displayName: auth.displayName,
+            pfpUrl: auth.pfpUrl,
+            authType: "wallet",
+          },
+        });
+      }
+
+      const tokenUsername = (auth.username || "").trim();
+      const tokenDisplayName = (auth.displayName || "").trim();
+      const needsIdentityRefresh =
+        !tokenUsername ||
+        tokenUsername.startsWith("wallet_") ||
+        tokenDisplayName.includes("...");
+
+      if (!needsIdentityRefresh) {
+        return NextResponse.json({
+          token: auth.token,
+          user: {
+            fid: auth.fid,
+            walletAddress: auth.walletAddress,
+            username: auth.username,
+            displayName: auth.displayName,
+            pfpUrl: auth.pfpUrl,
+            authType: "wallet",
+          },
+        });
+      }
+
+      const sql = getSqlClient();
+      await ensureWalletIdentityTable(sql);
+      const identity = await getOrCreateWalletIdentity(sql, walletAddress);
+      const refreshedToken = issueWalletSessionToken({
+        fid: identity.fid,
+        walletAddress: identity.walletAddress,
+        username: identity.username,
+        displayName: identity.displayName,
+        pfpUrl: identity.pfpUrl,
+      });
+
       return NextResponse.json({
-        token: auth.token,
+        token: refreshedToken,
         user: {
-          fid: auth.fid,
-          walletAddress: auth.walletAddress,
-          username: auth.username,
-          displayName: auth.displayName,
-          pfpUrl: auth.pfpUrl,
+          fid: identity.fid,
+          walletAddress: identity.walletAddress,
+          username: identity.username,
+          displayName: identity.displayName,
+          pfpUrl: identity.pfpUrl,
           authType: "wallet",
         },
       });

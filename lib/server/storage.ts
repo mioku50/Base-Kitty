@@ -1,4 +1,6 @@
 import { neon } from "@neondatabase/serverless";
+import { createPublicClient, http, toCoinType, type Address } from "viem";
+import { base, mainnet } from "viem/chains";
 
 export type NeonSql = ReturnType<typeof neon>;
 
@@ -6,6 +8,8 @@ let scoresEnsured = false;
 let notificationEnsured = false;
 let rewardTablesEnsured = false;
 let walletIdentitiesEnsured = false;
+let basenameClient: ReturnType<typeof createPublicClient> | null = null;
+let basenameClientRpc: string | null = null;
 
 export function getSqlClient(): NeonSql {
   const databaseUrl = process.env.DATABASE_URL;
@@ -127,6 +131,44 @@ type NeynarUserPayload = {
   pfpUrl?: string;
 };
 
+function getMainnetRpcUrlForBasename(): string {
+  return (
+    process.env.ETH_MAINNET_RPC_URL?.trim() ||
+    process.env.MAINNET_RPC_URL?.trim() ||
+    process.env.ALCHEMY_MAINNET_RPC_URL?.trim() ||
+    "https://eth.llamarpc.com"
+  );
+}
+
+function getBasenameClient() {
+  const rpcUrl = getMainnetRpcUrlForBasename();
+  if (!basenameClient || basenameClientRpc !== rpcUrl) {
+    basenameClient = createPublicClient({
+      chain: mainnet,
+      transport: http(rpcUrl),
+    });
+    basenameClientRpc = rpcUrl;
+  }
+  return basenameClient;
+}
+
+async function resolveBasenameByAddress(walletAddress: string): Promise<string | null> {
+  const normalizedAddress = walletAddress.trim().toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(normalizedAddress)) return null;
+
+  try {
+    const client = getBasenameClient();
+    const name = await client.getEnsName({
+      address: normalizedAddress as Address,
+      coinType: toCoinType(base.id),
+    });
+    if (!name || !name.toLowerCase().endsWith(".base.eth")) return null;
+    return name;
+  } catch {
+    return null;
+  }
+}
+
 function pickFirstNeynarUser(
   payload: unknown,
   normalizedAddress: string
@@ -174,10 +216,10 @@ async function resolveWalletIdentityFromNeynar(
 
   const normalizedAddress = walletAddress.toLowerCase();
   const endpoints = [
-    `https://api.neynar.com/v2/farcaster/user/bulk-by-address?addresses=${encodeURIComponent(
+    `https://api.neynar.com/v2/farcaster/user/bulk-by-address/?addresses=${encodeURIComponent(
       normalizedAddress
-    )}`,
-    `https://api.neynar.com/v2/farcaster/user/by-custody-address?custody_address=${encodeURIComponent(
+    )}&address_types=${encodeURIComponent("verified_address,custody_address")}`,
+    `https://api.neynar.com/v2/farcaster/user/custody-address/?custody_address=${encodeURIComponent(
       normalizedAddress
     )}`,
   ];
@@ -290,14 +332,26 @@ export async function getOrCreateWalletIdentity(
     currentDisplayName.includes("...");
 
   if (shouldAttemptProfileHydration) {
+    const basename = await resolveBasenameByAddress(normalizedAddress);
     const neynarProfile = await resolveWalletIdentityFromNeynar(normalizedAddress);
-    if (neynarProfile) {
+    const resolvedUsername =
+      basename || neynarProfile?.username || currentUsername;
+    const resolvedDisplayName =
+      basename || neynarProfile?.displayName || currentDisplayName;
+    const resolvedPfpUrl = neynarProfile?.pfpUrl || row.pfp_url || "";
+
+    const didChange =
+      resolvedUsername !== currentUsername ||
+      resolvedDisplayName !== currentDisplayName ||
+      resolvedPfpUrl !== (row.pfp_url || "");
+
+    if (didChange) {
       const updatedRows = (await sql`
         UPDATE wallet_identities
         SET
-          username = ${neynarProfile.username || currentUsername},
-          display_name = ${neynarProfile.displayName || currentDisplayName},
-          pfp_url = ${neynarProfile.pfpUrl || row.pfp_url || ""},
+          username = ${resolvedUsername},
+          display_name = ${resolvedDisplayName},
+          pfp_url = ${resolvedPfpUrl},
           updated_at = ${now}
         WHERE wallet_address = ${normalizedAddress}
         RETURNING fid, wallet_address, username, display_name, pfp_url

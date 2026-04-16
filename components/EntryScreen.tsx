@@ -704,7 +704,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
   return (
     <div
       className="absolute inset-0 flex flex-col items-center justify-start z-50 overflow-y-auto overflow-x-hidden pt-4 pb-6"
-      style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 24px)" }}
+      style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 120px)" }}
     >
       <div className="absolute inset-0 bg-gradient-to-b from-[#1a0533] via-[#0d1b2a] to-[#0a0020]" />
 

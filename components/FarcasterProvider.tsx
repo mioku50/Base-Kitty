@@ -45,6 +45,10 @@ type MiniAppSdkLike = {
     ready?: () => Promise<unknown> | unknown;
     composeCast?: (input: { text: string; embeds?: string[] }) => Promise<unknown>;
   };
+  wallet?: {
+    ethProvider?: EthereumProvider;
+    getEthereumProvider?: () => Promise<EthereumProvider | undefined>;
+  };
 };
 
 const FarcasterContext = createContext<FarcasterCtx>({
@@ -182,8 +186,23 @@ export default function FarcasterProvider({
   }, []);
 
   const getEthereumProvider = useCallback(async () => {
+    if (miniAppSdk?.wallet?.getEthereumProvider) {
+      try {
+        const provider = await miniAppSdk.wallet.getEthereumProvider();
+        if (provider && typeof provider.request === "function") {
+          return provider;
+        }
+      } catch {
+        // Fall back to injected provider.
+      }
+    }
+
+    if (miniAppSdk?.wallet?.ethProvider && typeof miniAppSdk.wallet.ethProvider.request === "function") {
+      return miniAppSdk.wallet.ethProvider;
+    }
+
     return getInjectedProvider();
-  }, []);
+  }, [miniAppSdk]);
 
   const signOut = useCallback(() => {
     setAuthToken(null);
@@ -196,7 +215,7 @@ export default function FarcasterProvider({
   }, []);
 
   const signIn = useCallback(async () => {
-    const provider = getInjectedProvider();
+    const provider = await getEthereumProvider();
     if (!provider) {
       throw new Error("Wallet provider is unavailable");
     }
@@ -276,7 +295,7 @@ export default function FarcasterProvider({
     setIsAuthenticated(true);
     window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, data.token);
     window.localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(data.user));
-  }, []);
+  }, [getEthereumProvider]);
 
   const composeCast = useCallback(
     async (text: string, options?: { embeds?: string[] }) => {

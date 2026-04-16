@@ -32,6 +32,15 @@ const PRAYER_FILL_ENEMY = 20;    // prayer points per enemy kill (x10)
 const PRAYER_FILL_COIN  = 5;     // prayer points per coin
 const PRAYER_EFFECT_MS  = 10000; // super boost/freeze duration ms
 const CLOUD_DRIFT_BASE_MULTIPLIER = 1.2;
+const LANDING_IMPACT_COOLDOWN_MS = 95;
+const PERFECT_JUMP_COOLDOWN_MS = 850;
+const JUMP_TRAIL_BASE_INTERVAL_MS = 130;
+const JUMP_TRAIL_BOOST_INTERVAL_MS = 78;
+const JUMP_TRAIL_VELOCITY_THRESHOLD = -180;
+const PERFECT_JUMP_TOLERANCE_MIN = 12;
+const PERFECT_JUMP_TOLERANCE_MAX = 22;
+const MAX_TRANSIENT_FX = 150;
+const DREAM_DUST_COUNT = 14;
 // Cloud drift speeds per stage (min, max)
 const CLOUD_DRIFT_SPEEDS = [
   { min: 15, max: 30 },  // Stage 0: slow
@@ -87,7 +96,13 @@ export default class GameScene extends Phaser.Scene {
   private lastSafeX = 0;
   private lastSafeY = 0;
   private ambientStars: Phaser.GameObjects.Arc[] = [];
+  private ambientDust: Phaser.GameObjects.Arc[] = [];
+  private skyPulseOverlay?: Phaser.GameObjects.Rectangle;
+  private transientFx = new Set<Phaser.GameObjects.GameObject>();
   private lastJumpBurstAt = 0;
+  private lastLandingImpactAt = 0;
+  private lastJumpTrailAt = 0;
+  private lastPerfectJumpAt = 0;
 
   private getPrayerButtonY(height: number) {
     return Math.max(72, height - PRAYER_BUTTON_BOTTOM_SAFE_OFFSET);
@@ -129,6 +144,14 @@ export default class GameScene extends Phaser.Scene {
       if (star.x > width + 20) star.x = Phaser.Math.Between(0, width);
       if (star.y > height + 20) star.y = Phaser.Math.Between(0, height);
     });
+    this.ambientDust.forEach((dust) => {
+      if (dust.x > width + 20) dust.x = Phaser.Math.Between(0, width);
+      if (dust.y > height + 20) dust.y = Phaser.Math.Between(0, height);
+    });
+    if (this.skyPulseOverlay) {
+      this.skyPulseOverlay.setPosition(width / 2, height / 2);
+      this.skyPulseOverlay.setSize(width, height);
+    }
   };
 
   constructor(onGameOver?: GameOverCallback, socialFriends?: SocialFriend[]) {
@@ -163,6 +186,9 @@ export default class GameScene extends Phaser.Scene {
     this.lastSafeX = 0;
     this.lastSafeY = 0;
     this.lastJumpBurstAt = 0;
+    this.lastLandingImpactAt = 0;
+    this.lastJumpTrailAt = 0;
+    this.lastPerfectJumpAt = 0;
   }
 
   create() {
@@ -239,7 +265,7 @@ export default class GameScene extends Phaser.Scene {
         const cloud = asSprite(plat);
         this.markSafeCheckpoint(player, cloud);
         player.setVelocityY(PLAYER_BOUNCE);
-        this.emitJumpBurst(player.x, cloud.y - 8);
+        this.handleLandingFeedback(player, cloud);
       },
       (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
@@ -256,7 +282,7 @@ export default class GameScene extends Phaser.Scene {
         player.setVelocityY(BOOST_BOUNCE);
         player.setTexture("rocket");
         player.setScale(85 / player.height);
-        this.emitJumpBurst(player.x, cloud.y - 10);
+        this.handleLandingFeedback(player, cloud);
       },
       (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
@@ -274,7 +300,7 @@ export default class GameScene extends Phaser.Scene {
           ext.crumbling = true;
           // Give a tiny bounce so the player has a moment to react
           asSprite(_p).setVelocityY(PLAYER_BOUNCE * 0.3);
-          this.emitJumpBurst(asSprite(_p).x, sprite.y - 6);
+          this.handleLandingFeedback(asSprite(_p), sprite);
           // Fast crumble: fade out in 200ms
           this.tweens.add({
             targets: sprite,
@@ -317,6 +343,7 @@ export default class GameScene extends Phaser.Scene {
       (_p, sphere) => {
         const collect = asSprite(sphere);
         this.emitCoinBurst(collect.x, collect.y);
+        this.showScorePopup(collect.x, collect.y - 18, `+${COLLECTABLE_SCORE}`, "#9de9ff");
         collect.destroy();
         this.coinsCollected++;
         this.addScore(COLLECTABLE_SCORE);
@@ -433,7 +460,7 @@ export default class GameScene extends Phaser.Scene {
         this.markSafeCheckpoint(player, sprite);
         player.setVelocityY(BOOST_BOUNCE * 1.15);
         this.showBoostPopup(username || 'friend');
-        this.emitJumpBurst(player.x, sprite.y - 10);
+        this.handleLandingFeedback(player, sprite);
       },
       (p, plat) => this.canLandOnCloud(asSprite(p), asSprite(plat)),
       this
@@ -472,7 +499,13 @@ export default class GameScene extends Phaser.Scene {
       this.scale.off("resize", this.onScaleResize);
       this.events.off(Phaser.Scenes.Events.PRE_UPDATE, this.onPreUpdate, this);
       this.ambientStars.forEach((star) => star.destroy());
+      this.ambientDust.forEach((dust) => dust.destroy());
       this.ambientStars = [];
+      this.ambientDust = [];
+      this.skyPulseOverlay?.destroy();
+      this.skyPulseOverlay = undefined;
+      this.transientFx.forEach((fx) => fx.destroy());
+      this.transientFx.clear();
     });
   }
 
@@ -583,6 +616,19 @@ export default class GameScene extends Phaser.Scene {
     const width = this.scale.width;
     const height = this.scale.height;
 
+    this.skyPulseOverlay = this.add
+      .rectangle(width / 2, height / 2, width, height, 0xb78fff, 0.02)
+      .setDepth(-9)
+      .setScrollFactor(0);
+    this.tweens.add({
+      targets: this.skyPulseOverlay,
+      alpha: { from: 0.02, to: 0.065 },
+      duration: 5400,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+
     for (let i = 0; i < 16; i++) {
       const star = this.add
         .circle(
@@ -606,6 +652,31 @@ export default class GameScene extends Phaser.Scene {
         yoyo: true,
         repeat: -1,
         delay: Phaser.Math.Between(50, 900),
+      });
+    }
+
+    for (let i = 0; i < DREAM_DUST_COUNT; i++) {
+      const dust = this.add
+        .circle(
+          Phaser.Math.Between(0, width),
+          Phaser.Math.Between(0, height),
+          Phaser.Math.FloatBetween(0.9, 2.1),
+          Phaser.Math.RND.pick([0xf4efff, 0xcde0ff, 0xfff4d8]),
+          Phaser.Math.FloatBetween(0.12, 0.35)
+        )
+        .setDepth(-8)
+        .setScrollFactor(0);
+      dust.setData("driftSpeedY", Phaser.Math.FloatBetween(3, 10));
+      dust.setData("driftSpeedX", Phaser.Math.FloatBetween(-3, 3));
+      this.ambientDust.push(dust);
+      this.tweens.add({
+        targets: dust,
+        alpha: { from: Phaser.Math.FloatBetween(0.08, 0.18), to: Phaser.Math.FloatBetween(0.22, 0.4) },
+        duration: Phaser.Math.Between(2400, 3800),
+        yoyo: true,
+        repeat: -1,
+        delay: Phaser.Math.Between(40, 1200),
+        ease: "Sine.easeInOut",
       });
     }
 
@@ -635,6 +706,19 @@ export default class GameScene extends Phaser.Scene {
         star.x = Phaser.Math.Between(0, width);
       }
     });
+
+    this.ambientDust.forEach((dust) => {
+      const speedY = Number(dust.getData("driftSpeedY") ?? 0);
+      const speedX = Number(dust.getData("driftSpeedX") ?? 0);
+      dust.y += speedY * (delta / 1000);
+      dust.x += speedX * (delta / 1000);
+      if (dust.y > height + 12) {
+        dust.y = -12;
+        dust.x = Phaser.Math.Between(0, width);
+      }
+      if (dust.x < -12) dust.x = width + 12;
+      if (dust.x > width + 12) dust.x = -12;
+    });
   }
 
   private spawnCometFx() {
@@ -652,12 +736,14 @@ export default class GameScene extends Phaser.Scene {
       .setDepth(-6)
       .setScrollFactor(0)
       .setRotation(angle);
+    this.registerTransientFx(comet);
 
     const tail = this.add
       .rectangle(startX + (fromLeft ? -20 : 20), startY + 2, 38, 2, 0x9be7ff, 0.35)
       .setDepth(-7)
       .setScrollFactor(0)
       .setRotation(angle);
+    this.registerTransientFx(tail);
 
     this.tweens.add({
       targets: [comet, tail],
@@ -687,6 +773,7 @@ export default class GameScene extends Phaser.Scene {
         .circle(x, y, Phaser.Math.Between(2, 4), Phaser.Math.RND.pick(palette), 0.95)
         .setDepth(7)
         .setScrollFactor(1);
+      this.registerTransientFx(particle);
       const vx = Phaser.Math.Between(-spreadX, spreadX);
       const vy = Phaser.Math.Between(-spreadY, spreadY);
 
@@ -711,7 +798,36 @@ export default class GameScene extends Phaser.Scene {
   }
 
   private emitCoinBurst(x: number, y: number) {
-    this.emitBurstParticles(x, y, [0xfff18f, 0x88f0ff, 0xffd27a], 8, 18, 16, 360);
+    const flash = this.add
+      .circle(x, y, 12, 0xcff3ff, 0.45)
+      .setDepth(8)
+      .setScrollFactor(1);
+    this.registerTransientFx(flash);
+    this.tweens.add({
+      targets: flash,
+      scale: { from: 0.4, to: 1.9 },
+      alpha: { from: 0.45, to: 0 },
+      duration: 240,
+      ease: "Sine.easeOut",
+      onComplete: () => flash.destroy(),
+    });
+
+    const ring = this.add
+      .ellipse(x, y, 8, 8)
+      .setStrokeStyle(2, 0x99ecff, 0.75)
+      .setDepth(8)
+      .setScrollFactor(1);
+    this.registerTransientFx(ring);
+    this.tweens.add({
+      targets: ring,
+      scale: { from: 1, to: 3.1 },
+      alpha: { from: 0.75, to: 0 },
+      duration: 380,
+      ease: "Cubic.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+
+    this.emitBurstParticles(x, y, [0xfff18f, 0x88f0ff, 0xffd27a], 10, 20, 18, 360);
   }
 
   private emitEnemyBurst(x: number, y: number) {
@@ -741,6 +857,257 @@ export default class GameScene extends Phaser.Scene {
       ease: "Cubic.easeOut",
       onComplete: () => popup.destroy(),
     });
+  }
+
+  private registerTransientFx<T extends Phaser.GameObjects.GameObject>(fx: T): T {
+    if (this.transientFx.size >= MAX_TRANSIENT_FX) {
+      const oldest = this.transientFx.values().next().value as Phaser.GameObjects.GameObject | undefined;
+      if (oldest) {
+        oldest.destroy();
+        this.transientFx.delete(oldest);
+      }
+    }
+    this.transientFx.add(fx);
+    fx.once("destroy", () => {
+      this.transientFx.delete(fx);
+    });
+    return fx;
+  }
+
+  private cleanupTransientFx(cameraTop: number, cameraBottom: number, viewWidth: number) {
+    this.transientFx.forEach((fx) => {
+      if (!fx.active) {
+        this.transientFx.delete(fx);
+        return;
+      }
+      const fxObj = fx as Phaser.GameObjects.GameObject & {
+        x?: number;
+        y?: number;
+        scrollFactorX?: number;
+        scrollFactorY?: number;
+      };
+      const isScreenSpace = fxObj.scrollFactorY === 0;
+      const minY = isScreenSpace ? -260 : cameraTop - 260;
+      const maxY = isScreenSpace ? this.scale.height + 260 : cameraBottom + 260;
+      if (typeof fxObj.y === "number" && (fxObj.y < minY || fxObj.y > maxY)) {
+        fx.destroy();
+        return;
+      }
+      const minX = -260;
+      const maxX = viewWidth + 260;
+      if (typeof fxObj.x === "number" && (fxObj.x < minX || fxObj.x > maxX)) {
+        fx.destroy();
+      }
+    });
+  }
+
+  private showScorePopup(x: number, y: number, text: string, color: string) {
+    const popup = this.add
+      .text(x, y, text, {
+        fontSize: "16px",
+        fontStyle: "700",
+        color,
+        stroke: "#132042",
+        strokeThickness: 4,
+      })
+      .setOrigin(0.5)
+      .setDepth(16)
+      .setScrollFactor(1);
+    this.registerTransientFx(popup);
+
+    this.tweens.add({
+      targets: popup,
+      y: y - 30,
+      alpha: { from: 1, to: 0 },
+      scale: { from: 0.95, to: 1.08 },
+      duration: 700,
+      ease: "Cubic.easeOut",
+      onComplete: () => popup.destroy(),
+    });
+  }
+
+  private handleLandingFeedback(player: Phaser.Physics.Arcade.Sprite, cloud: Phaser.Physics.Arcade.Sprite) {
+    this.emitJumpBurst(player.x, cloud.y - 8);
+    this.emitLandingImpact(player, cloud);
+    this.maybeEmitPerfectJump(player, cloud);
+  }
+
+  private emitLandingImpact(player: Phaser.Physics.Arcade.Sprite, cloud: Phaser.Physics.Arcade.Sprite) {
+    const now = this.time.now;
+    if (now - this.lastLandingImpactAt < LANDING_IMPACT_COOLDOWN_MS) return;
+    this.lastLandingImpactAt = now;
+
+    const cloudBody = cloud.body as Phaser.Physics.Arcade.StaticBody | Phaser.Physics.Arcade.Body | undefined;
+    const cloudTop = cloudBody?.top ?? cloud.y - cloud.displayHeight * 0.32;
+    const impactX = player.x;
+    const impactY = cloudTop + 2;
+
+    const puff = this.add
+      .ellipse(impactX, impactY + 4, 24, 12, 0xf2e8ff, 0.38)
+      .setDepth(6)
+      .setScrollFactor(1);
+    this.registerTransientFx(puff);
+    this.tweens.add({
+      targets: puff,
+      scaleX: { from: 0.4, to: 1.35 },
+      scaleY: { from: 0.35, to: 0.95 },
+      alpha: { from: 0.38, to: 0 },
+      duration: 210,
+      ease: "Sine.easeOut",
+      onComplete: () => puff.destroy(),
+    });
+
+    const ring = this.add
+      .ellipse(impactX, impactY + 1, 12, 6)
+      .setStrokeStyle(2, 0xe5c4ff, 0.7)
+      .setDepth(6)
+      .setScrollFactor(1);
+    this.registerTransientFx(ring);
+    this.tweens.add({
+      targets: ring,
+      scaleX: { from: 1, to: 3.2 },
+      scaleY: { from: 1, to: 2.3 },
+      alpha: { from: 0.7, to: 0 },
+      duration: 340,
+      ease: "Quad.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+
+    this.emitBurstParticles(impactX, impactY, [0xffffff, 0xd8efff, 0xe7d3ff], 5, 16, 14, 300);
+
+    const squash = this.add
+      .image(cloud.x, cloud.y, cloud.texture.key, cloud.frame.name)
+      .setDisplaySize(cloud.displayWidth, cloud.displayHeight)
+      .setAlpha(0.55)
+      .setDepth(cloud.depth + 0.05)
+      .setScrollFactor(1);
+    this.registerTransientFx(squash);
+    this.tweens.add({
+      targets: squash,
+      scaleX: { from: 1, to: 1.1 },
+      scaleY: { from: 1, to: 0.8 },
+      duration: 80,
+      yoyo: true,
+      ease: "Sine.easeInOut",
+    });
+    this.tweens.add({
+      targets: squash,
+      alpha: { from: 0.55, to: 0 },
+      duration: 220,
+      ease: "Sine.easeOut",
+      onComplete: () => squash.destroy(),
+    });
+  }
+
+  private maybeEmitPerfectJump(player: Phaser.Physics.Arcade.Sprite, cloud: Phaser.Physics.Arcade.Sprite) {
+    const now = this.time.now;
+    if (now - this.lastPerfectJumpAt < PERFECT_JUMP_COOLDOWN_MS) return;
+
+    const playerBody = player.body as Phaser.Physics.Arcade.Body | undefined;
+    const cloudBody = cloud.body as Phaser.Physics.Arcade.StaticBody | Phaser.Physics.Arcade.Body | undefined;
+    if (!playerBody || !cloudBody) return;
+
+    const dist = Math.abs(playerBody.center.x - cloudBody.center.x);
+    const tolerance = Phaser.Math.Clamp(
+      cloudBody.width * 0.18,
+      PERFECT_JUMP_TOLERANCE_MIN,
+      PERFECT_JUMP_TOLERANCE_MAX
+    );
+    if (dist > tolerance) return;
+
+    this.lastPerfectJumpAt = now;
+    this.emitPerfectJumpFx(player.x, player.y - player.displayHeight * 0.35);
+  }
+
+  private emitPerfectJumpFx(x: number, y: number) {
+    const glow = this.add
+      .circle(x, y, 18, 0xf6d8ff, 0.26)
+      .setDepth(7)
+      .setScrollFactor(1);
+    this.registerTransientFx(glow);
+    this.tweens.add({
+      targets: glow,
+      scale: { from: 0.65, to: 2.1 },
+      alpha: { from: 0.26, to: 0 },
+      duration: 420,
+      ease: "Sine.easeOut",
+      onComplete: () => glow.destroy(),
+    });
+
+    const popup = this.add
+      .text(x, y - 22, "★ PERFECT", {
+        fontSize: "18px",
+        fontStyle: "900",
+        color: "#fff2a6",
+        stroke: "#312255",
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setDepth(34)
+      .setScrollFactor(1);
+    this.registerTransientFx(popup);
+    this.tweens.add({
+      targets: popup,
+      y: y - 54,
+      alpha: { from: 1, to: 0 },
+      scale: { from: 0.9, to: 1.08 },
+      duration: 820,
+      ease: "Cubic.easeOut",
+      onComplete: () => popup.destroy(),
+    });
+
+    const pulse = this.add
+      .rectangle(this.scale.width / 2, this.scale.height / 2, this.scale.width, this.scale.height, 0xdcc1ff, 0)
+      .setDepth(18)
+      .setScrollFactor(0);
+    this.registerTransientFx(pulse);
+    this.tweens.add({
+      targets: pulse,
+      alpha: { from: 0, to: 0.1 },
+      duration: 70,
+      yoyo: true,
+      ease: "Sine.easeInOut",
+      onComplete: () => pulse.destroy(),
+    });
+  }
+
+  private maybeEmitJumpTrail() {
+    const playerBody = this.player.body as Phaser.Physics.Arcade.Body | undefined;
+    if (!playerBody) return;
+    if (playerBody.velocity.y > JUMP_TRAIL_VELOCITY_THRESHOLD) return;
+
+    const boosted = this.prayerBoostMs > 0 || this.player.texture.key === "rocket";
+    const interval = boosted ? JUMP_TRAIL_BOOST_INTERVAL_MS : JUMP_TRAIL_BASE_INTERVAL_MS;
+    const now = this.time.now;
+    if (now - this.lastJumpTrailAt < interval) return;
+    this.lastJumpTrailAt = now;
+
+    const count = boosted ? 3 : 2;
+    const palette = boosted ? [0x9df3ff, 0xffe1ff, 0xfff5bf] : [0xbee7ff, 0xdac4ff];
+
+    for (let i = 0; i < count; i++) {
+      const dot = this.add
+        .circle(
+          this.player.x + Phaser.Math.Between(-10, 10),
+          this.player.y + this.player.displayHeight * 0.25 + Phaser.Math.Between(-4, 8),
+          Phaser.Math.FloatBetween(1.4, boosted ? 3.4 : 2.6),
+          Phaser.Math.RND.pick(palette),
+          boosted ? 0.72 : 0.58
+        )
+        .setDepth(4)
+        .setScrollFactor(1);
+      this.registerTransientFx(dot);
+      this.tweens.add({
+        targets: dot,
+        y: dot.y + Phaser.Math.Between(16, boosted ? 44 : 30),
+        x: dot.x + Phaser.Math.Between(-10, 10),
+        alpha: { from: dot.alpha, to: 0 },
+        scale: { from: 1, to: 0.35 },
+        duration: boosted ? 400 : 300,
+        ease: "Sine.easeOut",
+        onComplete: () => dot.destroy(),
+      });
+    }
   }
 
   // ─── Input handlers ──────────────────────────────────────────────────────────
@@ -1380,6 +1747,8 @@ export default class GameScene extends Phaser.Scene {
       }
     }
 
+    this.maybeEmitJumpTrail();
+
     // Track highest point and add score
     if (this.player.y < this.highestY) {
       const deltaY = this.highestY - this.player.y;
@@ -1396,6 +1765,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     const cameraBottom = cam.scrollY + cam.height;
+    this.cleanupTransientFx(cameraTop, cameraBottom, viewWidth);
 
     if (this.player.y < cameraBottom - 24) {
       this.lastSafeX = this.player.x;

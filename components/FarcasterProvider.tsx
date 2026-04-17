@@ -253,6 +253,12 @@ export default function FarcasterProvider({
   }, [authToken, hostContextUser]);
 
   const getEthereumProvider = useCallback(async () => {
+    const injectedProvider = getInjectedProvider();
+    // In Base App (no Farcaster user context), prefer injected wallet provider first.
+    if (!hostContextUser && injectedProvider) {
+      return injectedProvider;
+    }
+
     if (miniAppSdk?.wallet?.getEthereumProvider) {
       try {
         const provider = await miniAppSdk.wallet.getEthereumProvider();
@@ -268,8 +274,8 @@ export default function FarcasterProvider({
       return miniAppSdk.wallet.ethProvider;
     }
 
-    return getInjectedProvider();
-  }, [miniAppSdk]);
+    return injectedProvider;
+  }, [hostContextUser, miniAppSdk]);
 
   const signOut = useCallback(() => {
     setAuthToken(null);

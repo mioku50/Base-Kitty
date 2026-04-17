@@ -197,6 +197,18 @@ function isMethodUnsupportedError(err: unknown): boolean {
   );
 }
 
+function isTimeoutError(err: unknown): boolean {
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+      ? err
+      : err && typeof err === "object" && "message" in err
+      ? String((err as { message?: unknown }).message || "")
+      : "";
+  return message.toLowerCase().includes("timed out");
+}
+
 async function providerRequest<T>(
   provider: WalletProvider,
   params: { method: string; params?: unknown[] },
@@ -207,6 +219,43 @@ async function providerRequest<T>(
     WALLET_REQUEST_TIMEOUT_MS,
     timeoutMessage
   );
+}
+
+async function resolveWalletAddress(
+  provider: WalletProvider,
+  hintedAddress?: string
+): Promise<HexAddress | null> {
+  const hinted = asHexAddress(hintedAddress);
+  if (hinted) return hinted;
+
+  try {
+    const accounts = await withTimeout(
+      provider.request({ method: "eth_accounts" }) as Promise<string[] | undefined>,
+      6000,
+      "Wallet account check timed out"
+    );
+    const fromAccounts = asHexAddress(accounts?.[0]);
+    if (fromAccounts) return fromAccounts;
+  } catch {
+    // Continue to interactive request.
+  }
+
+  const requested = await providerRequest<string[] | undefined>(
+    provider,
+    {
+      method: "eth_requestAccounts",
+    },
+    "Wallet connection request timed out. Please try again."
+  );
+  return asHexAddress(requested?.[0]);
+}
+
+function parseCallsId(result: unknown): string | null {
+  if (typeof result === "string" && result.length > 0) return result;
+  if (!result || typeof result !== "object") return null;
+  const root = result as Record<string, unknown>;
+  const id = root.id ?? root.callsId ?? root.callId;
+  return typeof id === "string" && id.length > 0 ? id : null;
 }
 
 function extractTxHashFromCallsStatus(status: unknown): string | null {
@@ -358,14 +407,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
 
       let addressQuery = "";
       if (provider) {
-        const accounts = await providerRequest<string[] | undefined>(
-          provider,
-          {
-            method: "eth_accounts",
-          },
-          "Wallet account check timed out. Please retry."
-        );
-        const address = asHexAddress(accounts?.[0]);
+        const address = await resolveWalletAddress(provider, user.walletAddress);
         if (address) {
           addressQuery = `?address=${address}`;
         }
@@ -398,7 +440,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       setClaimStatus(null);
       setClaimError(normalizeProviderError(err));
     }
-  }, [authToken, getEthereumProvider, isSDKLoaded, user]);
+  }, [authToken, getEthereumProvider, isSDKLoaded, user, user?.walletAddress]);
 
   useEffect(() => {
     fetchClaimStatus().catch(() => {
@@ -418,14 +460,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
 
       let addressQuery = "";
       if (provider) {
-        const accounts = await providerRequest<string[] | undefined>(
-          provider,
-          {
-            method: "eth_accounts",
-          },
-          "Wallet account check timed out. Please retry."
-        );
-        const address = asHexAddress(accounts?.[0]);
+        const address = await resolveWalletAddress(provider, user.walletAddress);
         if (address) {
           addressQuery = `?address=${address}`;
         }
@@ -455,7 +490,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       setTasksStatus(null);
       setTaskMessage(normalizeProviderError(err));
     }
-  }, [authToken, getEthereumProvider, isSDKLoaded, user]);
+  }, [authToken, getEthereumProvider, isSDKLoaded, user, user?.walletAddress]);
 
   useEffect(() => {
     if (!showBlessings) return;
@@ -495,23 +530,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       };
 
       try {
-        txHash = await providerRequest<string>(
-          provider,
-          {
-            method: "eth_sendTransaction",
-            params: [txPayload],
-          },
-          "Transaction confirmation timed out. Please retry claim."
-        );
-        return { txHash, callsId };
-      } catch (ethSendError) {
-        if (!isMethodUnsupportedError(ethSendError)) {
-          throw ethSendError;
-        }
-      }
-
-      try {
-        const maybeCallsId = await providerRequest<string>(
+        const sendCallsResult = await providerRequest<unknown>(
           provider,
           {
             method: "wallet_sendCalls",
@@ -532,47 +551,66 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           },
           "Transaction request timed out. Please retry claim."
         );
-        if (typeof maybeCallsId !== "string" || maybeCallsId.length === 0) {
+        const maybeCallsId = parseCallsId(sendCallsResult);
+        if (!maybeCallsId) {
           throw new Error("wallet_sendCalls returned an empty id");
         }
 
         callsId = maybeCallsId;
 
-        for (let attempt = 0; attempt < CLAIM_STATUS_POLL_ATTEMPTS; attempt++) {
-          const status = await providerRequest(
-            provider,
-            {
-            method: "wallet_getCallsStatus",
-            params: [callsId],
-            },
-            "Transaction status check timed out. Please retry claim."
-          );
-
-          const resolvedTxHash = extractTxHashFromCallsStatus(status);
-          if (resolvedTxHash) {
-            txHash = resolvedTxHash;
-            break;
-          }
-
-          if (status && typeof status === "object") {
-            const s = status as Record<string, unknown>;
-            const statusText = String(s.status ?? s.state ?? "").toLowerCase();
-            if (
-              statusText.includes("fail") ||
-              statusText.includes("revert") ||
-              statusText.includes("reject")
-            ) {
-              throw new Error("Claim transaction was rejected");
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const status = await withTimeout(
+              provider.request({
+                method: "wallet_getCallsStatus",
+                params: [callsId],
+              }) as Promise<unknown>,
+              1800,
+              "Status check timed out"
+            );
+            const resolvedTxHash = extractTxHashFromCallsStatus(status);
+            if (resolvedTxHash) {
+              txHash = resolvedTxHash;
+              break;
             }
+            if (status && typeof status === "object") {
+              const s = status as Record<string, unknown>;
+              const statusText = String(s.status ?? s.state ?? "").toLowerCase();
+              if (
+                statusText.includes("fail") ||
+                statusText.includes("revert") ||
+                statusText.includes("reject")
+              ) {
+                throw new Error("Claim transaction was rejected");
+              }
+            }
+          } catch {
+            // Some wallets don't support getCallsStatus reliably; keep the call id as success.
           }
-
-          await delay(CLAIM_STATUS_POLL_INTERVAL_MS);
+          await delay(350);
         }
+        return { txHash, callsId };
       } catch (sendCallsError) {
-        if (isMethodUnsupportedError(sendCallsError)) {
-          throw new Error("Wallet does not support transaction methods required for claim");
+        if (!isMethodUnsupportedError(sendCallsError) && !isTimeoutError(sendCallsError)) {
+          throw sendCallsError;
         }
-        throw sendCallsError;
+      }
+
+      txHash = await providerRequest<string>(
+        provider,
+        {
+          method: "eth_sendTransaction",
+          params: [
+            {
+              ...txPayload,
+              chainId: targetChain,
+            },
+          ],
+        },
+        "Transaction confirmation timed out. Please retry claim."
+      );
+      if (!txHash || typeof txHash !== "string") {
+        throw new Error("Transaction hash was not returned by wallet");
       }
 
       return { txHash, callsId };
@@ -597,14 +635,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         throw new Error("Wallet provider is unavailable in this client");
       }
 
-      const accounts = await providerRequest<string[] | undefined>(
-        provider,
-        {
-          method: "eth_requestAccounts",
-        },
-        "Wallet connection request timed out. Please try again."
-      );
-      const from = asHexAddress(accounts?.[0]);
+      const from = await resolveWalletAddress(provider, user?.walletAddress);
       if (!from) {
         throw new Error("No wallet account is connected");
       }
@@ -659,7 +690,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     } finally {
       setClaimPending(false);
     }
-  }, [authToken, fetchClaimStatus, fetchTasksStatus, getEthereumProvider, sendClaimTransaction]);
+  }, [authToken, fetchClaimStatus, fetchTasksStatus, getEthereumProvider, sendClaimTransaction, user?.walletAddress]);
 
   const handleTaskClaim = useCallback(
     async (task: "share" | "streak" | "invite") => {
@@ -678,14 +709,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
           throw new Error("Wallet provider is unavailable in this client");
         }
 
-        const accounts = await providerRequest<string[] | undefined>(
-          provider,
-          {
-            method: "eth_requestAccounts",
-          },
-          "Wallet connection request timed out. Please try again."
-        );
-        const from = asHexAddress(accounts?.[0]);
+        const from = await resolveWalletAddress(provider, user?.walletAddress);
         if (!from) {
           throw new Error("No wallet account is connected");
         }
@@ -739,6 +763,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       fetchTasksStatus,
       getEthereumProvider,
       sendClaimTransaction,
+      user?.walletAddress,
     ]
   );
 

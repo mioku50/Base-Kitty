@@ -8,8 +8,9 @@ let scoresEnsured = false;
 let notificationEnsured = false;
 let rewardTablesEnsured = false;
 let walletIdentitiesEnsured = false;
-let basenameClient: ReturnType<typeof createPublicClient> | null = null;
-let basenameClientRpc: string | null = null;
+
+const BASENAME_REVERSE_REGISTRAR = "0x79EA96012eEa67A83431F1701B3dFf7e37F9E282" as Address;
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 
 export function getSqlClient(): NeonSql {
   const databaseUrl = process.env.DATABASE_URL;
@@ -140,24 +141,110 @@ function getMainnetRpcUrlForBasename(): string {
   );
 }
 
+function getBaseRpcUrlForBasename(): string {
+  return (
+    process.env.BASE_RPC_URL?.trim() ||
+    process.env.BASE_MAINNET_RPC_URL?.trim() ||
+    "https://mainnet.base.org"
+  );
+}
+
 function getBasenameClient() {
-  const rpcUrl = getMainnetRpcUrlForBasename();
-  if (!basenameClient || basenameClientRpc !== rpcUrl) {
-    basenameClient = createPublicClient({
-      chain: mainnet,
-      transport: http(rpcUrl),
-    });
-    basenameClientRpc = rpcUrl;
+  const rpcUrl = getBaseRpcUrlForBasename();
+  return createPublicClient({
+    chain: base,
+    transport: http(rpcUrl, { timeout: 8_000, retryCount: 1 }),
+  });
+}
+
+async function resolveBasenameViaBaseReverseRegistrar(walletAddress: string): Promise<string | null> {
+  const normalizedAddress = walletAddress.trim().toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(normalizedAddress)) return null;
+
+  try {
+    const client = getBasenameClient();
+    const reverseNode = (await client.readContract({
+      address: BASENAME_REVERSE_REGISTRAR,
+      abi: [
+        {
+          type: "function",
+          name: "node",
+          stateMutability: "pure",
+          inputs: [{ name: "addr", type: "address" }],
+          outputs: [{ type: "bytes32" }],
+        },
+      ],
+      functionName: "node",
+      args: [normalizedAddress as Address],
+    })) as `0x${string}`;
+
+    const registry = (await client.readContract({
+      address: BASENAME_REVERSE_REGISTRAR,
+      abi: [
+        {
+          type: "function",
+          name: "registry",
+          stateMutability: "view",
+          inputs: [],
+          outputs: [{ type: "address" }],
+        },
+      ],
+      functionName: "registry",
+    })) as Address;
+
+    const resolver = (await client.readContract({
+      address: registry,
+      abi: [
+        {
+          type: "function",
+          name: "resolver",
+          stateMutability: "view",
+          inputs: [{ name: "node", type: "bytes32" }],
+          outputs: [{ type: "address" }],
+        },
+      ],
+      functionName: "resolver",
+      args: [reverseNode],
+    })) as Address;
+
+    if (!resolver || resolver.toLowerCase() === ZERO_ADDRESS) return null;
+
+    const name = (await client.readContract({
+      address: resolver,
+      abi: [
+        {
+          type: "function",
+          name: "name",
+          stateMutability: "view",
+          inputs: [{ name: "node", type: "bytes32" }],
+          outputs: [{ type: "string" }],
+        },
+      ],
+      functionName: "name",
+      args: [reverseNode],
+    })) as string;
+
+    const trimmed = name.trim();
+    if (!trimmed || !trimmed.toLowerCase().endsWith(".base.eth")) return null;
+    return trimmed;
+  } catch {
+    return null;
   }
-  return basenameClient;
 }
 
 async function resolveBasenameByAddress(walletAddress: string): Promise<string | null> {
   const normalizedAddress = walletAddress.trim().toLowerCase();
   if (!/^0x[a-f0-9]{40}$/.test(normalizedAddress)) return null;
 
+  const reverseName = await resolveBasenameViaBaseReverseRegistrar(normalizedAddress);
+  if (reverseName) return reverseName;
+
+  // Legacy fallback via ENS gateway path.
   try {
-    const client = getBasenameClient();
+    const client = createPublicClient({
+      chain: mainnet,
+      transport: http(getMainnetRpcUrlForBasename(), { timeout: 8_000, retryCount: 1 }),
+    });
     const name = await client.getEnsName({
       address: normalizedAddress as Address,
       coinType: toCoinType(base.id),

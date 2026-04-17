@@ -794,7 +794,7 @@ export default class GameScene extends Phaser.Scene {
     const now = this.time.now;
     if (now - this.lastJumpBurstAt < 110) return;
     this.lastJumpBurstAt = now;
-    this.emitBurstParticles(x, y, [0xaee7ff, 0xdab8ff, 0xffffff], 10, 24, 20, 420);
+    this.emitBurstParticles(x, y, [0xaee7ff, 0xdab8ff, 0xffffff], 5, 14, 12, 240);
   }
 
   private emitCoinBurst(x: number, y: number) {
@@ -943,57 +943,57 @@ export default class GameScene extends Phaser.Scene {
     const impactY = cloudTop + 2;
 
     const puff = this.add
-      .ellipse(impactX, impactY + 3, 16, 8, 0xf2e8ff, 0.22)
+      .ellipse(impactX, impactY + 3, 12, 6, 0xf2e8ff, 0.14)
       .setDepth(6)
       .setScrollFactor(1);
     this.registerTransientFx(puff);
     this.tweens.add({
       targets: puff,
-      scaleX: { from: 0.55, to: 1.1 },
-      scaleY: { from: 0.5, to: 0.82 },
-      alpha: { from: 0.22, to: 0 },
-      duration: 170,
+      scaleX: { from: 0.62, to: 0.95 },
+      scaleY: { from: 0.58, to: 0.74 },
+      alpha: { from: 0.14, to: 0 },
+      duration: 130,
       ease: "Sine.easeOut",
       onComplete: () => puff.destroy(),
     });
 
     const ring = this.add
-      .ellipse(impactX, impactY + 1, 10, 5)
-      .setStrokeStyle(1.5, 0xe5c4ff, 0.45)
+      .ellipse(impactX, impactY + 1, 8, 4)
+      .setStrokeStyle(1.2, 0xe5c4ff, 0.3)
       .setDepth(6)
       .setScrollFactor(1);
     this.registerTransientFx(ring);
     this.tweens.add({
       targets: ring,
-      scaleX: { from: 1, to: 2.1 },
-      scaleY: { from: 1, to: 1.6 },
-      alpha: { from: 0.45, to: 0 },
-      duration: 250,
+      scaleX: { from: 1, to: 1.55 },
+      scaleY: { from: 1, to: 1.25 },
+      alpha: { from: 0.3, to: 0 },
+      duration: 180,
       ease: "Quad.easeOut",
       onComplete: () => ring.destroy(),
     });
 
-    this.emitBurstParticles(impactX, impactY, [0xffffff, 0xd8efff, 0xe7d3ff], 3, 12, 10, 220);
+    this.emitBurstParticles(impactX, impactY, [0xffffff, 0xd8efff, 0xe7d3ff], 2, 9, 8, 180);
 
     const squash = this.add
       .image(cloud.x, cloud.y, cloud.texture.key, cloud.frame.name)
       .setDisplaySize(cloud.displayWidth, cloud.displayHeight)
-      .setAlpha(0.3)
+      .setAlpha(0.16)
       .setDepth(cloud.depth + 0.05)
       .setScrollFactor(1);
     this.registerTransientFx(squash);
     this.tweens.add({
       targets: squash,
-      scaleX: { from: 1, to: 1.05 },
-      scaleY: { from: 1, to: 0.88 },
-      duration: 70,
+      scaleX: { from: 1, to: 1.02 },
+      scaleY: { from: 1, to: 0.93 },
+      duration: 62,
       yoyo: true,
       ease: "Sine.easeInOut",
     });
     this.tweens.add({
       targets: squash,
-      alpha: { from: 0.3, to: 0 },
-      duration: 150,
+      alpha: { from: 0.16, to: 0 },
+      duration: 110,
       ease: "Sine.easeOut",
       onComplete: () => squash.destroy(),
     });

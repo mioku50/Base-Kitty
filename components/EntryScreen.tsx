@@ -179,6 +179,24 @@ function normalizeProviderError(err: unknown): string {
   return "Failed to claim daily blessing";
 }
 
+function isMethodUnsupportedError(err: unknown): boolean {
+  const message =
+    err instanceof Error
+      ? err.message
+      : typeof err === "string"
+      ? err
+      : err && typeof err === "object" && "message" in err
+      ? String((err as { message?: unknown }).message || "")
+      : "";
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("method not found") ||
+    lower.includes("unsupported method") ||
+    lower.includes("does not exist") ||
+    lower.includes("not implemented")
+  );
+}
+
 async function providerRequest<T>(
   provider: WalletProvider,
   params: { method: string; params?: unknown[] },
@@ -469,30 +487,51 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
 
       let txHash = "";
       let callsId = "";
+      const txPayload = {
+        from,
+        to: prepared.tx.to,
+        value: prepared.tx.value,
+        data: prepared.tx.data,
+      };
+
+      try {
+        txHash = await providerRequest<string>(
+          provider,
+          {
+            method: "eth_sendTransaction",
+            params: [txPayload],
+          },
+          "Transaction confirmation timed out. Please retry claim."
+        );
+        return { txHash, callsId };
+      } catch (ethSendError) {
+        if (!isMethodUnsupportedError(ethSendError)) {
+          throw ethSendError;
+        }
+      }
 
       try {
         const maybeCallsId = await providerRequest<string>(
           provider,
           {
-          method: "wallet_sendCalls",
-          params: [
-            {
-              version: "1.0",
-              chainId: targetChain,
-              from,
-              calls: [
-                {
-                  to: prepared.tx.to,
-                  value: prepared.tx.value,
-                  data: prepared.tx.data,
-                },
-              ],
-            },
-          ],
+            method: "wallet_sendCalls",
+            params: [
+              {
+                version: "1.0",
+                chainId: targetChain,
+                from,
+                calls: [
+                  {
+                    to: prepared.tx.to,
+                    value: prepared.tx.value,
+                    data: prepared.tx.data,
+                  },
+                ],
+              },
+            ],
           },
           "Transaction request timed out. Please retry claim."
         );
-
         if (typeof maybeCallsId !== "string" || maybeCallsId.length === 0) {
           throw new Error("wallet_sendCalls returned an empty id");
         }
@@ -529,22 +568,11 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
 
           await delay(CLAIM_STATUS_POLL_INTERVAL_MS);
         }
-      } catch {
-        txHash = await providerRequest<string>(
-          provider,
-          {
-            method: "eth_sendTransaction",
-            params: [
-              {
-                from,
-                to: prepared.tx.to,
-                value: prepared.tx.value,
-                data: prepared.tx.data,
-              },
-            ],
-          },
-          "Transaction confirmation timed out. Please retry claim."
-        );
+      } catch (sendCallsError) {
+        if (isMethodUnsupportedError(sendCallsError)) {
+          throw new Error("Wallet does not support transaction methods required for claim");
+        }
+        throw sendCallsError;
       }
 
       return { txHash, callsId };

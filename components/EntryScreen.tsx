@@ -547,6 +547,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
                 version: "1.0",
                 chainId: targetChain,
                 from,
+                atomicRequired: false,
                 calls: [
                   {
                     to: prepared.tx.to,

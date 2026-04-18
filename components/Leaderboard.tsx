@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useFarcaster } from "./FarcasterProvider";
 import KittyIcon from "./KittyIcon";
@@ -23,6 +23,7 @@ interface Props {
 
 const REQUEST_TIMEOUT_MS = 8000;
 const CACHE_PREFIX = "nimbus_ascent:leaderboard:";
+const AUTH_USER_STORAGE_KEY = "nimbus_ascent:auth_user:v2";
 
 function readCachedEntries(mode: Mode): LeaderboardEntry[] | null {
   if (typeof window === "undefined") return null;
@@ -50,6 +51,11 @@ function writeCachedEntries(mode: Mode, entries: LeaderboardEntry[]) {
 
 export default function Leaderboard({ onBack }: Props) {
   const { user, composeCast } = useFarcaster();
+  const [viewerFallback, setViewerFallback] = useState<{
+    fid?: number;
+    username?: string;
+    displayName?: string;
+  } | null>(null);
   const [mode, setMode] = useState<Mode>("weekly");
   const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(false);
@@ -57,6 +63,24 @@ export default function Leaderboard({ onBack }: Props) {
   const [sharePending, setSharePending] = useState(false);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
   const requestSeq = useRef(0);
+  const viewer = user ?? viewerFallback ?? null;
+  const viewerFid = typeof viewer?.fid === "number" ? viewer.fid : null;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(AUTH_USER_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as {
+        fid?: number;
+        username?: string;
+        displayName?: string;
+      };
+      setViewerFallback(parsed);
+    } catch {
+      // Ignore invalid cached auth payload.
+    }
+  }, []);
 
   // Fetch friend FIDs from Neynar on mount
   useEffect(() => {
@@ -88,13 +112,13 @@ export default function Leaderboard({ onBack }: Props) {
       const reqId = ++requestSeq.current;
       setLoading(true);
       const params = new URLSearchParams({ mode: m });
-      if (user) params.set("fid", String(user.fid));
+      if (viewerFid !== null) params.set("fid", String(viewerFid));
       if (m === "friends") {
         if (friendFids.length > 0) {
           params.set("friends", friendFids.join(","));
-        } else if (user) {
+        } else if (viewerFid !== null) {
           // In friends mode without fetched list, at least show current user.
-          params.set("friends", String(user.fid));
+          params.set("friends", String(viewerFid));
         }
       }
       const controller = new AbortController();
@@ -123,7 +147,7 @@ export default function Leaderboard({ onBack }: Props) {
         }
       }
     },
-    [user, friendFids]
+    [viewerFid, friendFids]
   );
 
   useEffect(() => {
@@ -136,10 +160,32 @@ export default function Leaderboard({ onBack }: Props) {
     { key: "friends", label: "Friends", icon: <KittyIcon size={14} /> },
   ];
 
-  const myEntry = user ? entries.find((entry) => entry.fid === user.fid) : null;
+  const myEntry = useMemo(() => {
+    if (entries.length === 0) return null;
+
+    if (viewerFid !== null) {
+      const byFid = entries.find((entry) => entry.fid === viewerFid);
+      if (byFid) return byFid;
+    }
+
+    const normalizedViewerUsername = (viewer?.username || "").trim().toLowerCase();
+    const normalizedViewerDisplayName = (viewer?.displayName || "").trim().toLowerCase();
+    if (!normalizedViewerUsername && !normalizedViewerDisplayName) return null;
+
+    return (
+      entries.find((entry) => {
+        const entryUsername = (entry.username || "").trim().toLowerCase();
+        const entryDisplayName = (entry.displayName || "").trim().toLowerCase();
+        return (
+          (normalizedViewerUsername && entryUsername === normalizedViewerUsername) ||
+          (normalizedViewerDisplayName && entryDisplayName === normalizedViewerDisplayName)
+        );
+      }) || null
+    );
+  }, [entries, viewer?.displayName, viewer?.username, viewerFid]);
 
   const handleShareLeaderboard = useCallback(async () => {
-    if (!user || sharePending) return;
+    if (sharePending) return;
 
     const appUrl =
       (process.env.NEXT_PUBLIC_URL && process.env.NEXT_PUBLIC_URL.trim()) ||
@@ -155,7 +201,7 @@ export default function Leaderboard({ onBack }: Props) {
 
     const params = new URLSearchParams({
       kind: "leaderboard",
-      username: user.username || user.displayName || "player",
+      username: viewer?.username || viewer?.displayName || "player",
       mode,
       rank: myEntry ? String(myEntry.rank) : "unranked",
       score: myEntry ? String(myEntry.score) : "0",
@@ -177,7 +223,7 @@ export default function Leaderboard({ onBack }: Props) {
     } finally {
       setSharePending(false);
     }
-  }, [composeCast, mode, myEntry, sharePending, user]);
+  }, [composeCast, mode, myEntry, sharePending, viewer?.displayName, viewer?.username]);
 
   return (
     <div className="absolute inset-0 flex flex-col bg-gradient-to-b from-[#1a0533] via-[#0d1b2a] to-[#0a0020] z-50 overflow-hidden">
@@ -222,7 +268,7 @@ export default function Leaderboard({ onBack }: Props) {
               setShareMessage("Failed to open composer");
             });
           }}
-          disabled={!user || sharePending}
+          disabled={sharePending}
           className="mt-2 w-full rounded-xl border border-cyan-300/35 bg-cyan-500/20 py-2 text-sm font-black text-cyan-100 disabled:opacity-50"
         >
           {sharePending ? "Opening..." : "Share Rank Card 🚀"}
@@ -268,7 +314,7 @@ export default function Leaderboard({ onBack }: Props) {
         ) : (
           <div className="space-y-1.5">
             {entries.map((entry, idx) => {
-              const isMe = user && entry.fid === user.fid;
+              const isMe = myEntry ? entry.fid === myEntry.fid : false;
               const medalEmoji =
                 idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : null;
 

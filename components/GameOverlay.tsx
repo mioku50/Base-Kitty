@@ -5,6 +5,11 @@ import Image from "next/image";
 import { useFarcaster } from "./FarcasterProvider";
 import KittyIcon from "./KittyIcon";
 import type { GameStats } from "../lib/game/types";
+import {
+  flushPendingScores,
+  submitScoreReliably,
+  type ScoreSubmissionPayload,
+} from "../lib/shared/scoreSubmission";
 
 const REVIVE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
@@ -178,27 +183,26 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
         typeof window !== "undefined"
           ? Number(window.localStorage.getItem("nimbus_ascent:referrer_fid") || 0)
           : 0;
-      fetch("/api/score", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        },
-        body: JSON.stringify({
-          fid: effectiveUser.fid,
-          username: effectiveUser.username,
-          displayName: effectiveUser.displayName,
-          pfpUrl: effectiveUser.pfpUrl,
-          score: stats.score,
-          enemiesKilled: stats.enemiesKilled,
-          coinsCollected: stats.coinsCollected,
-          maxStage: stats.maxStage,
-          prayersUsed: stats.prayersUsed,
-          referrerFid: Number.isFinite(referrerFid) && referrerFid > 0 ? referrerFid : undefined,
-        }),
-      })
-        .then((r) => r.json())
+      const payload: ScoreSubmissionPayload = {
+        fid: effectiveUser.fid,
+        username: effectiveUser.username || `fid:${effectiveUser.fid}`,
+        displayName: effectiveUser.displayName || effectiveUser.username || `User ${effectiveUser.fid}`,
+        pfpUrl: effectiveUser.pfpUrl || "",
+        score: stats.score,
+        enemiesKilled: stats.enemiesKilled,
+        coinsCollected: stats.coinsCollected,
+        maxStage: stats.maxStage,
+        prayersUsed: stats.prayersUsed,
+        runId: stats.runId,
+        referrerFid: Number.isFinite(referrerFid) && referrerFid > 0 ? referrerFid : undefined,
+      };
+
+      let cancelled = false;
+
+      submitScoreReliably(payload, authToken, { keepalive: true })
         .then((data) => {
+          if (!data || cancelled) return;
+
           if (data.bestScore) {
             const mergedBest = Math.max(Number(data.bestScore), stats.score);
             setBestScore(mergedBest);
@@ -206,9 +210,22 @@ export default function GameOverlay({ stats, onRestart, onLeaderboard, onRevive 
               window.localStorage.setItem(bestScoreKey, String(mergedBest));
             }
           }
-          if (data.badges) setBadges(data.badges);
+          if (Array.isArray(data.badges)) {
+            setBadges(data.badges);
+          }
         })
-        .catch(() => {});
+        .catch(() => {
+          // Submission stays queued and will retry on next app open.
+        })
+        .finally(() => {
+          flushPendingScores(authToken).catch(() => {
+            // Best-effort queue drain.
+          });
+        });
+
+      return () => {
+        cancelled = true;
+      };
     } else {
       // Derive local badges for non-authenticated users
       const b: string[] = [];

@@ -1,4 +1,5 @@
 export interface GameStats {
+  runId: string;
   score: number;
   enemiesKilled: number;
   coinsCollected: number;

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useFarcaster } from "./FarcasterProvider";
 import KittyIcon from "./KittyIcon";
+import { flushPendingScores } from "../lib/shared/scoreSubmission";
 
 interface Props {
   onPlay: () => void;
@@ -447,6 +448,13 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
       // handled inside fetchClaimStatus
     });
   }, [fetchClaimStatus]);
+
+  useEffect(() => {
+    if (!isSDKLoaded || !user) return;
+    flushPendingScores(authToken).catch(() => {
+      // Best-effort sync for scores queued when app was closed quickly.
+    });
+  }, [authToken, isSDKLoaded, user]);
 
   const fetchTasksStatus = useCallback(async () => {
     if (!isSDKLoaded || !user || !authToken) return;

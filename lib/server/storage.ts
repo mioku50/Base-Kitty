@@ -40,12 +40,14 @@ export async function ensureScoresTable(sql: NeonSql) {
       timestamp BIGINT NOT NULL DEFAULT 0,
       last_played_at BIGINT NOT NULL DEFAULT 0,
       last_run_items_collected INTEGER NOT NULL DEFAULT 0,
+      last_run_id TEXT NOT NULL DEFAULT '',
       last_revive_at BIGINT NOT NULL DEFAULT 0
     )
   `;
 
   await sql`ALTER TABLE scores ADD COLUMN IF NOT EXISTS last_played_at BIGINT NOT NULL DEFAULT 0`;
   await sql`ALTER TABLE scores ADD COLUMN IF NOT EXISTS last_run_items_collected INTEGER NOT NULL DEFAULT 0`;
+  await sql`ALTER TABLE scores ADD COLUMN IF NOT EXISTS last_run_id TEXT NOT NULL DEFAULT ''`;
   await sql`ALTER TABLE scores ADD COLUMN IF NOT EXISTS last_revive_at BIGINT NOT NULL DEFAULT 0`;
 
   scoresEnsured = true;

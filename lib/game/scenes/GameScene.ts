@@ -99,6 +99,7 @@ export default class GameScene extends Phaser.Scene {
   private ambientDust: Phaser.GameObjects.Arc[] = [];
   private skyPulseOverlay?: Phaser.GameObjects.Rectangle;
   private transientFx = new Set<Phaser.GameObjects.GameObject>();
+  private runId = "";
   private lastJumpBurstAt = 0;
   private lastLandingImpactAt = 0;
   private lastJumpTrailAt = 0;
@@ -185,6 +186,7 @@ export default class GameScene extends Phaser.Scene {
     this.reviveInvulnerabilityMs = 0;
     this.lastSafeX = 0;
     this.lastSafeY = 0;
+    this.runId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
     this.lastJumpBurstAt = 0;
     this.lastLandingImpactAt = 0;
     this.lastJumpTrailAt = 0;
@@ -1684,6 +1686,7 @@ export default class GameScene extends Phaser.Scene {
     // Notify React layer
     if (this.gameOverCallback) {
       const stats: GameStats = {
+        runId: this.runId,
         score: this.score,
         enemiesKilled: this.enemiesKilled,
         coinsCollected: this.coinsCollected,

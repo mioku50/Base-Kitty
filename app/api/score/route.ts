@@ -42,6 +42,7 @@ type ScoreRow = {
   timestamp: number | string;
   last_played_at: number | string;
   last_run_items_collected: number;
+  last_run_id: string;
 };
 
 function withNoStoreHeaders(init?: ResponseInit): ResponseInit {
@@ -96,6 +97,7 @@ export async function POST(req: NextRequest) {
       maxStage = 0,
       prayersUsed = 0,
       referrerFid,
+      runId,
     } = body;
 
     const resolvedFid = auth && auth.ok ? auth.fid : Number(fid);
@@ -104,6 +106,7 @@ export async function POST(req: NextRequest) {
     const resolvedDisplayName =
       (auth && auth.ok && auth.displayName) || displayName || `User ${resolvedFid}`;
     const resolvedPfpUrl = (auth && auth.ok && auth.pfpUrl) || pfpUrl || "";
+    const resolvedRunId = typeof runId === "string" ? runId.slice(0, 128) : "";
 
     if (!resolvedFid || typeof score !== "number") {
       return NextResponse.json(
@@ -119,11 +122,11 @@ export async function POST(req: NextRequest) {
     const rows = (await sql`
       INSERT INTO scores
         (fid, username, display_name, pfp_url, best_score, weekly_score, week_key,
-         enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp, last_played_at, last_run_items_collected)
+         enemies_killed, coins_collected, max_stage, prayers_used, games_played, timestamp, last_played_at, last_run_items_collected, last_run_id)
       VALUES
         (${resolvedFid}, ${resolvedUsername}, ${resolvedDisplayName},
          ${resolvedPfpUrl}, ${score}, ${score}, ${wk},
-         ${enemiesKilled}, ${coinsCollected}, ${maxStage}, ${prayersUsed}, 1, ${now}, ${now}, ${coinsCollected})
+         ${enemiesKilled}, ${coinsCollected}, ${maxStage}, ${prayersUsed}, 1, ${now}, ${now}, ${coinsCollected}, ${resolvedRunId})
       ON CONFLICT (fid) DO UPDATE SET
         username       = EXCLUDED.username,
         display_name   = EXCLUDED.display_name,
@@ -134,19 +137,47 @@ export async function POST(req: NextRequest) {
                            ELSE GREATEST(scores.weekly_score, ${score})
                          END,
         week_key       = ${wk},
-        enemies_killed  = scores.enemies_killed + ${enemiesKilled},
-        coins_collected = scores.coins_collected + ${coinsCollected},
+        enemies_killed = CASE
+                           WHEN ${resolvedRunId} <> '' AND scores.last_run_id = ${resolvedRunId}
+                             THEN scores.enemies_killed
+                           ELSE scores.enemies_killed + ${enemiesKilled}
+                         END,
+        coins_collected = CASE
+                            WHEN ${resolvedRunId} <> '' AND scores.last_run_id = ${resolvedRunId}
+                              THEN scores.coins_collected
+                            ELSE scores.coins_collected + ${coinsCollected}
+                          END,
         max_stage      = GREATEST(scores.max_stage, ${maxStage}),
-        prayers_used   = scores.prayers_used + ${prayersUsed},
-        games_played   = scores.games_played + 1,
-        last_played_at = ${now},
-        last_run_items_collected = ${coinsCollected},
+        prayers_used = CASE
+                         WHEN ${resolvedRunId} <> '' AND scores.last_run_id = ${resolvedRunId}
+                           THEN scores.prayers_used
+                         ELSE scores.prayers_used + ${prayersUsed}
+                       END,
+        games_played = CASE
+                         WHEN ${resolvedRunId} <> '' AND scores.last_run_id = ${resolvedRunId}
+                           THEN scores.games_played
+                         ELSE scores.games_played + 1
+                       END,
+        last_played_at = CASE
+                           WHEN ${resolvedRunId} <> '' AND scores.last_run_id = ${resolvedRunId}
+                             THEN scores.last_played_at
+                           ELSE ${now}
+                         END,
+        last_run_items_collected = CASE
+                                     WHEN ${resolvedRunId} <> '' AND scores.last_run_id = ${resolvedRunId}
+                                       THEN scores.last_run_items_collected
+                                     ELSE ${coinsCollected}
+                                   END,
+        last_run_id = CASE
+                        WHEN ${resolvedRunId} <> '' THEN ${resolvedRunId}
+                        ELSE scores.last_run_id
+                      END,
         timestamp      = CASE
                            WHEN ${score} > scores.best_score THEN ${now}
                            ELSE scores.timestamp
                          END
       RETURNING best_score, weekly_score, week_key, enemies_killed, coins_collected,
-                max_stage, prayers_used, games_played, timestamp, last_played_at, last_run_items_collected
+                max_stage, prayers_used, games_played, timestamp, last_played_at, last_run_items_collected, last_run_id
     `) as ScoreRow[];
 
     const row = rows[0];

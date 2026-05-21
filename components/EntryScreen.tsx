@@ -335,6 +335,7 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
     useFarcaster();
 
   const [claimPending, setClaimPending] = useState(false);
+  const [connectPending, setConnectPending] = useState(false);
   const [claimError, setClaimError] = useState("");
   const [claimTxHash, setClaimTxHash] = useState("");
   const [claimCallsId, setClaimCallsId] = useState("");
@@ -1134,15 +1135,22 @@ export default function EntryScreen({ onPlay, onLeaderboard }: Props) {
         ) : (
           <button
             onClick={() => {
+              if (connectPending) return;
+              setClaimError("");
+              setConnectPending(true);
               signIn().catch((err) => {
                 setClaimError(normalizeProviderError(err));
+              }).finally(() => {
+                setConnectPending(false);
               });
             }}
-            disabled={!isSDKLoaded}
+            disabled={!isSDKLoaded || connectPending}
             className="w-full bg-white/5 border border-white/10 rounded-2xl p-3 mb-5 flex items-center justify-center gap-2 hover:bg-white/10 transition-colors disabled:opacity-40"
           >
             <KittyIcon size={18} />
-            <span className="text-white font-semibold text-sm">Connect Wallet</span>
+            <span className="text-white font-semibold text-sm">
+              {connectPending ? "Connecting..." : "Connect Wallet"}
+            </span>
           </button>
         )}
 

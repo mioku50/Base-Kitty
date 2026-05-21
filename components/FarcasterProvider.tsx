@@ -26,6 +26,10 @@ type EthereumProvider = {
   request: (params: { method: string; params?: unknown[] }) => Promise<unknown>;
 };
 
+type BaseAccountSdk = {
+  getProvider?: () => EthereumProvider;
+};
+
 interface FarcasterCtx {
   user: FarcasterUser | null;
   isSDKLoaded: boolean;
@@ -39,6 +43,10 @@ interface FarcasterCtx {
 
 const AUTH_TOKEN_STORAGE_KEY = "nimbus_ascent:auth_token:v2";
 const AUTH_USER_STORAGE_KEY = "nimbus_ascent:auth_user:v2";
+const BASE_CHAIN_ID = 8453;
+const WALLET_REQUEST_TIMEOUT_MS = 15_000;
+
+let baseAccountProviderPromise: Promise<EthereumProvider | null> | null = null;
 
 type MiniAppSdkLike = {
   context?: Promise<{
@@ -88,6 +96,84 @@ function getInjectedProvider(): EthereumProvider | null {
   ).ethereum;
   if (!candidate || typeof candidate.request !== "function") return null;
   return candidate as EthereumProvider;
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(message));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function providerRequest<T>(
+  provider: EthereumProvider,
+  params: { method: string; params?: unknown[] },
+  timeoutMessage: string
+): Promise<T> {
+  return withTimeout(
+    provider.request(params) as Promise<T>,
+    WALLET_REQUEST_TIMEOUT_MS,
+    timeoutMessage
+  );
+}
+
+async function getBaseAccountProvider(): Promise<EthereumProvider | null> {
+  if (typeof window === "undefined") return null;
+
+  if (!baseAccountProviderPromise) {
+    baseAccountProviderPromise = (async () => {
+      try {
+        const accountModule = (await import("@base-org/account")) as {
+          createBaseAccountSDK?: (params: {
+            appName: string;
+            appLogoUrl?: string;
+            appChainIds?: number[];
+            preference?: {
+              attribution?: { auto?: boolean };
+              telemetry?: boolean;
+            };
+          }) => BaseAccountSdk;
+        };
+        const createBaseAccountSDK = accountModule.createBaseAccountSDK;
+        if (typeof createBaseAccountSDK !== "function") return null;
+
+        const sdk = createBaseAccountSDK({
+          appName: "Nimbus Ascent",
+          appLogoUrl: `${window.location.origin}/icon.png`,
+          appChainIds: [BASE_CHAIN_ID],
+          preference: {
+            attribution: { auto: true },
+            telemetry: true,
+          },
+        });
+        const provider = sdk.getProvider?.();
+        return provider && typeof provider.request === "function" ? provider : null;
+      } catch {
+        return null;
+      }
+    })();
+  }
+
+  return baseAccountProviderPromise;
 }
 
 function randomNonceHex(bytes = 16): string {
@@ -254,9 +340,10 @@ export default function FarcasterProvider({
 
   const getEthereumProvider = useCallback(async () => {
     const injectedProvider = getInjectedProvider();
-    // In Base App (no Farcaster user context), prefer injected wallet provider first.
-    if (!hostContextUser && injectedProvider) {
-      return injectedProvider;
+    // Base App now treats apps as standard web apps, so prefer Base Account there.
+    if (!hostContextUser) {
+      const baseAccountProvider = await getBaseAccountProvider();
+      return baseAccountProvider || injectedProvider;
     }
 
     if (miniAppSdk?.wallet?.getEthereumProvider) {
@@ -288,7 +375,7 @@ export default function FarcasterProvider({
   }, []);
 
   const signIn = useCallback(async () => {
-    if (miniAppSdk?.quickAuth?.getToken) {
+    if (hostContextUser && miniAppSdk?.quickAuth?.getToken) {
       try {
         const quickAuth = await miniAppSdk.quickAuth.getToken();
         const quickAuthToken = quickAuth?.token;
@@ -340,9 +427,13 @@ export default function FarcasterProvider({
       throw new Error("Wallet provider is unavailable");
     }
 
-    const accounts = (await provider.request({
-      method: "eth_requestAccounts",
-    })) as string[] | undefined;
+    const accounts = await providerRequest<string[] | undefined>(
+      provider,
+      {
+        method: "eth_requestAccounts",
+      },
+      "Wallet connection timed out. Please reopen the app and try again."
+    );
     const address = normalizeHexAddress(accounts?.[0]);
     if (!address) {
       throw new Error("No wallet account is connected");
@@ -364,10 +455,14 @@ export default function FarcasterProvider({
     let lastError: unknown = null;
     for (const params of attempts) {
       try {
-        signature = (await provider.request({
-          method: "personal_sign",
-          params,
-        })) as string;
+        signature = await providerRequest<string>(
+          provider,
+          {
+            method: "personal_sign",
+            params,
+          },
+          "Wallet signature timed out. Please try again."
+        );
         if (typeof signature === "string" && signature.startsWith("0x")) {
           break;
         }
@@ -378,10 +473,14 @@ export default function FarcasterProvider({
 
     if (!signature) {
       try {
-        signature = (await provider.request({
-          method: "eth_sign",
-          params: [address, messageHex],
-        })) as string;
+        signature = await providerRequest<string>(
+          provider,
+          {
+            method: "eth_sign",
+            params: [address, messageHex],
+          },
+          "Wallet signature timed out. Please try again."
+        );
       } catch (error) {
         lastError = error;
       }

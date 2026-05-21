@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 
-const ICON_VERSION = "5";
+const ICON_VERSION = "6";
 
 export async function GET() {
   const rawUrl = process.env.NEXT_PUBLIC_URL?.trim() || "https://base-kitty.vercel.app";
   const URL = rawUrl.replace(/\/+$/, "");
   const ogImageUrl = `${URL}/api/og`;
-  const iconUrl = `${URL}/api/icon?v=${ICON_VERSION}`;
+  const iconUrl = `${URL}/icon.png?v=${ICON_VERSION}`;
 
   return NextResponse.json(
     {

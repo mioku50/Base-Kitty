@@ -12,6 +12,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@base-org/account": "^2.5.6",
     "@farcaster/miniapp-node": "^0.1.13",
     "@farcaster/miniapp-sdk": "^0.2.3",
     "@farcaster/quick-auth": "^0.0.8",

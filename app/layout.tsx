@@ -11,7 +11,7 @@ function getAppUrl() {
 
 const APP_URL = getAppUrl();
 const OG_IMAGE_URL = `${APP_URL}/api/og`;
-const APP_ICON_URL = `${APP_URL}/api/icon?v=5`;
+const APP_ICON_URL = `${APP_URL}/icon.png?v=6`;
 
 export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
